@@ -1,29 +1,31 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import type { PageData } from './$types';
-	import Map from '$lib/components/Map.svelte';
 	import type { GeneratedRoute } from '$lib/database.types';
 
 	let { data }: { data: PageData } = $props();
 
+	let MapLayout: typeof import('$lib/components/MapLayout.svelte').default | null = $state(null);
 	let selectedRouteId = $state<string | null>(null);
+	let copied = $state(false);
 
 	const routes = data.routes as GeneratedRoute[];
+	const routeColors = ['#d4a574', '#5c8dc4', '#4a9d6b'];
 
 	const vibeLabels: Record<string, string> = {
-		coffee_shop: 'Coffee Stop',
-		scenic_views: 'Scenic Views',
+		coffee_shop: 'Coffee',
+		scenic_views: 'Scenic',
 		low_traffic: 'Low Traffic',
-		gravel_ok: 'Gravel OK',
-		waterfront: 'Waterfront',
-		minimize_hills: 'Flat Route',
-		maximize_hills: 'Hilly Route'
+		gravel_ok: 'Gravel',
+		waterfront: 'Water',
+		minimize_hills: 'Flat',
+		maximize_hills: 'Hilly'
 	};
 
-	const routeColors = ['#059669', '#0891b2', '#7c3aed'];
-
-	function selectRoute(routeId: string) {
-		selectedRouteId = selectedRouteId === routeId ? null : routeId;
-	}
+	onMount(async () => {
+		const module = await import('$lib/components/MapLayout.svelte');
+		MapLayout = module.default;
+	});
 
 	const mapRoutes = $derived(
 		routes.map((route, index) => ({
@@ -33,117 +35,286 @@
 			color: routeColors[index % routeColors.length]
 		}))
 	);
+
+	function selectRoute(id: string) {
+		selectedRouteId = selectedRouteId === id ? null : id;
+	}
+
+	async function copyLink() {
+		await navigator.clipboard.writeText(window.location.href);
+		copied = true;
+		setTimeout(() => (copied = false), 2000);
+	}
 </script>
 
 <svelte:head>
 	<title>Routes - {data.ride.name} - PedalParty</title>
 </svelte:head>
 
-<div class="min-h-screen bg-gradient-to-br from-emerald-50 to-teal-100">
-	<div class="container mx-auto px-4 py-8">
-		<!-- Header -->
-		<div class="text-center mb-6">
-			<a href="/" class="text-emerald-600 hover:text-emerald-700 text-sm font-medium">
-				PedalParty
-			</a>
-			<h1 class="text-3xl font-bold text-gray-900 mt-2">{data.ride.name}</h1>
-			{#if data.ride.date_time}
-				<p class="text-gray-600 mt-1">
-					{new Date(data.ride.date_time).toLocaleDateString('en-US', {
-						weekday: 'long',
-						year: 'numeric',
-						month: 'long',
-						day: 'numeric',
-						hour: 'numeric',
-						minute: '2-digit'
-					})}
-				</p>
-			{/if}
-		</div>
-
-		<div class="grid lg:grid-cols-3 gap-6">
-			<!-- Map -->
-			<div class="lg:col-span-2">
-				<div class="bg-white rounded-2xl shadow-xl overflow-hidden">
-					<div class="h-[500px]">
-						<Map routes={mapRoutes} {selectedRouteId} />
+{#if MapLayout}
+	<MapLayout routes={mapRoutes} {selectedRouteId}>
+		<aside class="sidebar">
+			<div class="sidebar-header">
+				<a href="/" class="logo">PEDALPARTY</a>
+				<h1 class="ride-name">{data.ride.name}</h1>
+				{#if data.ride.date_time}
+					<div class="ride-date mono">
+						{new Date(data.ride.date_time).toLocaleDateString('en-US', {
+							month: 'short',
+							day: 'numeric',
+							hour: 'numeric',
+							minute: '2-digit'
+						})}
 					</div>
-				</div>
+				{/if}
 			</div>
 
-			<!-- Route Cards -->
-			<div class="space-y-4">
-				<h2 class="text-lg font-semibold text-gray-800">Generated Routes</h2>
+			<div class="sidebar-content">
+				<div class="label">Routes</div>
 
-				{#each routes as route, index}
-					{@const color = routeColors[index % routeColors.length]}
-					<button
-						onclick={() => selectRoute(route.id)}
-						class="w-full text-left bg-white rounded-xl shadow-lg p-4 transition-all duration-200 hover:shadow-xl {selectedRouteId === route.id ? 'ring-2 ring-emerald-500' : ''}"
-					>
-						<div class="flex items-start gap-3">
-							<div
-								class="w-4 h-4 rounded-full mt-1 shrink-0"
-								style="background-color: {color}"
-							></div>
-							<div class="flex-1 min-w-0">
-								<h3 class="font-semibold text-gray-900">{route.name}</h3>
+				<div class="route-list">
+					{#each routes as route, index}
+						{@const color = routeColors[index % routeColors.length]}
+						{@const isSelected = selectedRouteId === route.id}
+						<button
+							class="route-card"
+							class:selected={isSelected}
+							onclick={() => selectRoute(route.id)}
+						>
+							<div class="route-header">
+								<div class="route-color" style="background: {color}"></div>
+								<div class="route-info">
+									<div class="route-name">{route.name}</div>
+									<div class="route-stats mono">
+										{route.distance_km} km
+										{#if route.elevation_gain_m}
+											<span class="stat-sep">·</span>
+											{route.elevation_gain_m}m
+										{/if}
+									</div>
+								</div>
+							</div>
 
-								<div class="flex gap-4 mt-2 text-sm text-gray-600">
-									<span>{route.distance_km} km</span>
-									{#if route.elevation_gain_m}
-										<span>{route.elevation_gain_m}m gain</span>
+							{#if route.matched_vibes && route.matched_vibes.length > 0}
+								<div class="route-vibes">
+									{#each route.matched_vibes as vibe}
+										<span class="vibe-tag">{vibeLabels[vibe] || vibe}</span>
+									{/each}
+								</div>
+							{/if}
+
+							{#if isSelected && route.pois && route.pois.length > 0}
+								<div class="route-pois">
+									<div class="pois-label">Points of Interest</div>
+									{#each route.pois.slice(0, 3) as poi}
+										<div class="poi-item">{poi.name}</div>
+									{/each}
+									{#if route.pois.length > 3}
+										<div class="poi-more">+{route.pois.length - 3} more</div>
 									{/if}
 								</div>
-
-								{#if route.matched_vibes && route.matched_vibes.length > 0}
-									<div class="flex flex-wrap gap-1 mt-2">
-										{#each route.matched_vibes as vibe}
-											<span class="px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded-full text-xs">
-												{vibeLabels[vibe] || vibe}
-											</span>
-										{/each}
-									</div>
-								{/if}
-
-								{#if route.pois && route.pois.length > 0}
-									<div class="mt-3 pt-3 border-t border-gray-100">
-										<span class="text-xs text-gray-500 block mb-1">Points of Interest</span>
-										<div class="space-y-1">
-											{#each route.pois.slice(0, 3) as poi}
-												<div class="text-sm text-gray-600 truncate">
-													{poi.name}
-												</div>
-											{/each}
-											{#if route.pois.length > 3}
-												<div class="text-xs text-gray-400">
-													+{route.pois.length - 3} more
-												</div>
-											{/if}
-										</div>
-									</div>
-								{/if}
-							</div>
-						</div>
-					</button>
-				{/each}
-
-				<!-- Share Button -->
-				<div class="pt-4">
-					<button
-						onclick={async () => {
-							await navigator.clipboard.writeText(window.location.href);
-							alert('Link copied!');
-						}}
-						class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-3 px-6 rounded-lg shadow-md hover:shadow-lg transition-all duration-200 flex items-center justify-center gap-2"
-					>
-						<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
-						</svg>
-						Share Routes
-					</button>
+							{/if}
+						</button>
+					{/each}
 				</div>
 			</div>
-		</div>
-	</div>
-</div>
+
+			<div class="sidebar-footer">
+				<button class="btn btn-primary w-full" onclick={copyLink}>
+					{copied ? 'Link Copied' : 'Share Routes'}
+				</button>
+			</div>
+		</aside>
+	</MapLayout>
+{:else}
+	<div class="loading">Loading...</div>
+{/if}
+
+<style>
+	.sidebar {
+		position: absolute;
+		top: 1rem;
+		left: 1rem;
+		bottom: 1rem;
+		width: 320px;
+		display: flex;
+		flex-direction: column;
+		background: var(--surface-overlay);
+		backdrop-filter: blur(12px);
+		border: 1px solid var(--border);
+		border-radius: var(--radius-md);
+		box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
+	}
+
+	.sidebar-header {
+		padding: 1.25rem;
+		border-bottom: 1px solid var(--border);
+	}
+
+	.logo {
+		font-size: 0.6875rem;
+		font-weight: 600;
+		letter-spacing: 0.15em;
+		color: var(--text-muted);
+		text-decoration: none;
+	}
+
+	.ride-name {
+		margin-top: 0.75rem;
+		font-size: 1.125rem;
+		font-weight: 600;
+		color: var(--text-primary);
+	}
+
+	.ride-date {
+		margin-top: 0.25rem;
+		font-size: 0.75rem;
+		color: var(--text-secondary);
+	}
+
+	.sidebar-content {
+		flex: 1;
+		padding: 1.25rem;
+		overflow-y: auto;
+	}
+
+	.route-list {
+		margin-top: 0.75rem;
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+
+	.route-card {
+		width: 100%;
+		text-align: left;
+		padding: 0.875rem;
+		background: var(--surface-secondary);
+		border: 1px solid var(--border);
+		border-radius: var(--radius-sm);
+		cursor: pointer;
+		transition: all 0.15s ease;
+	}
+
+	.route-card:hover {
+		border-color: var(--gray-400);
+		background: var(--gray-50);
+	}
+
+	.route-card.selected {
+		border-color: var(--accent);
+	}
+
+	.route-header {
+		display: flex;
+		gap: 0.75rem;
+		align-items: flex-start;
+	}
+
+	.route-color {
+		width: 4px;
+		height: 32px;
+		flex-shrink: 0;
+	}
+
+	.route-info {
+		flex: 1;
+		min-width: 0;
+	}
+
+	.route-name {
+		font-size: 0.875rem;
+		font-weight: 500;
+		color: var(--text-primary);
+	}
+
+	.route-stats {
+		margin-top: 0.25rem;
+		font-size: 0.75rem;
+		color: var(--text-secondary);
+	}
+
+	.stat-sep {
+		margin: 0 0.25rem;
+		color: var(--text-muted);
+	}
+
+	.route-vibes {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.25rem;
+		margin-top: 0.625rem;
+		padding-left: calc(4px + 0.75rem);
+	}
+
+	.vibe-tag {
+		padding: 0.125rem 0.375rem;
+		font-size: 0.625rem;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		background: var(--gray-100);
+		border-radius: var(--radius-sm);
+		color: var(--text-secondary);
+	}
+
+	.route-pois {
+		margin-top: 0.75rem;
+		padding-top: 0.75rem;
+		padding-left: calc(4px + 0.75rem);
+		border-top: 1px solid var(--border-subtle);
+	}
+
+	.pois-label {
+		font-size: 0.625rem;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		color: var(--text-muted);
+		margin-bottom: 0.375rem;
+	}
+
+	.poi-item {
+		font-size: 0.75rem;
+		color: var(--text-secondary);
+		padding: 0.125rem 0;
+	}
+
+	.poi-more {
+		font-size: 0.6875rem;
+		color: var(--text-muted);
+		margin-top: 0.25rem;
+	}
+
+	.sidebar-footer {
+		padding: 1rem 1.25rem;
+		border-top: 1px solid var(--border);
+	}
+
+	.w-full {
+		width: 100%;
+	}
+
+	.loading {
+		position: fixed;
+		inset: 0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background: var(--surface-primary);
+		color: var(--text-muted);
+		font-size: 0.8125rem;
+	}
+
+	@media (max-width: 640px) {
+		.sidebar {
+			top: auto;
+			left: 0;
+			right: 0;
+			bottom: 0;
+			width: auto;
+			max-height: 50vh;
+			border-left: none;
+			border-right: none;
+			border-bottom: none;
+		}
+	}
+</style>

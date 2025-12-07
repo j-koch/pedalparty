@@ -1,83 +1,362 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 
+	let MapLayout: typeof import('$lib/components/MapLayout.svelte').default | null = $state(null);
+	let showCreateModal = $state(false);
+	let rideName = $state('');
+	let rideDateTime = $state('');
 	let isCreating = $state(false);
+	let error = $state('');
 
-	async function handleCreateRide() {
+	onMount(async () => {
+		const module = await import('$lib/components/MapLayout.svelte');
+		MapLayout = module.default;
+	});
+
+	async function createRide() {
+		if (!rideName.trim()) {
+			error = 'Enter a ride name';
+			return;
+		}
+
 		isCreating = true;
-		goto('/create');
+		error = '';
+
+		try {
+			const response = await fetch('/api/rides', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					name: rideName.trim(),
+					date_time: rideDateTime || null
+				})
+			});
+
+			const data = await response.json();
+
+			if (!response.ok) {
+				throw new Error(data.error || 'Failed to create ride');
+			}
+
+			localStorage.setItem(`organizer_${data.ride_id}`, data.organizer_token);
+			goto(data.organizer_url);
+		} catch (err) {
+			error = err instanceof Error ? err.message : 'Something went wrong';
+			isCreating = false;
+		}
+	}
+
+	function handleKeydown(e: KeyboardEvent) {
+		if (e.key === 'Escape') {
+			showCreateModal = false;
+		}
 	}
 </script>
 
 <svelte:head>
-	<title>PedalParty - Plan Group Rides Together</title>
+	<title>PedalParty - Collaborative Route Planning</title>
 </svelte:head>
 
-<div class="min-h-screen bg-gradient-to-br from-emerald-50 to-teal-100">
-	<div class="container mx-auto px-4 py-16">
-		<!-- Hero Section -->
-		<div class="text-center max-w-3xl mx-auto">
-			<h1 class="text-5xl font-bold text-gray-900 mb-6">
-				Plan Group Rides
-				<span class="text-emerald-600">Together</span>
-			</h1>
+<svelte:window onkeydown={handleKeydown} />
 
-			<p class="text-xl text-gray-600 mb-8">
-				Create a ride, share a link, and let everyone submit their preferences.
-				We'll generate the perfect route that works for your whole group.
-			</p>
+{#if MapLayout}
+	<MapLayout>
+		<!-- Sidebar -->
+		<aside class="sidebar">
+			<div class="sidebar-header">
+				<div class="logo">PEDALPARTY</div>
+				<p class="tagline">Collaborative route planning for group rides</p>
+			</div>
 
-			<button
-				onclick={handleCreateRide}
-				disabled={isCreating}
-				class="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white font-semibold text-lg px-8 py-4 rounded-xl shadow-lg hover:shadow-xl transition-all duration-200 cursor-pointer"
-			>
-				{#if isCreating}
-					<svg class="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-						<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-						<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
-					</svg>
-					Creating...
-				{:else}
-					Create a Ride
-				{/if}
-			</button>
-		</div>
+			<div class="sidebar-content">
+				<button class="btn btn-primary w-full" onclick={() => (showCreateModal = true)}>
+					+ New Ride
+				</button>
 
-		<!-- How It Works -->
-		<div class="mt-24 max-w-4xl mx-auto">
-			<h2 class="text-2xl font-bold text-center text-gray-800 mb-12">How It Works</h2>
+				<div class="divider"></div>
 
-			<div class="grid md:grid-cols-3 gap-8">
-				<div class="text-center">
-					<div class="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4">
-						<span class="text-2xl font-bold text-emerald-600">1</span>
-					</div>
-					<h3 class="font-semibold text-gray-800 mb-2">Create a Ride</h3>
-					<p class="text-gray-600">Give your ride a name and get a unique link to share with your group.</p>
-				</div>
-
-				<div class="text-center">
-					<div class="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4">
-						<span class="text-2xl font-bold text-emerald-600">2</span>
-					</div>
-					<h3 class="font-semibold text-gray-800 mb-2">Collect Preferences</h3>
-					<p class="text-gray-600">Everyone submits their start location, distance, and ride preferences anonymously.</p>
-				</div>
-
-				<div class="text-center">
-					<div class="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4">
-						<span class="text-2xl font-bold text-emerald-600">3</span>
-					</div>
-					<h3 class="font-semibold text-gray-800 mb-2">Get Your Route</h3>
-					<p class="text-gray-600">We generate optimized routes that balance everyone's preferences.</p>
+				<div class="info-section">
+					<h3 class="section-title">How it works</h3>
+					<ol class="steps">
+						<li>
+							<span class="step-num">01</span>
+							<span class="step-text">Create a ride and share the link</span>
+						</li>
+						<li>
+							<span class="step-num">02</span>
+							<span class="step-text">Participants submit their preferences</span>
+						</li>
+						<li>
+							<span class="step-num">03</span>
+							<span class="step-text">Generate optimized routes for everyone</span>
+						</li>
+					</ol>
 				</div>
 			</div>
-		</div>
 
-		<!-- Footer -->
-		<div class="mt-24 text-center text-gray-500 text-sm">
-			<p>No accounts needed. Free forever.</p>
-		</div>
+			<div class="sidebar-footer">
+				<span class="footer-text">No accounts. No cost. Just ride.</span>
+			</div>
+		</aside>
+
+		<!-- Create Modal -->
+		{#if showCreateModal}
+			<div class="modal-overlay" onclick={() => (showCreateModal = false)}>
+				<div class="modal" onclick={(e) => e.stopPropagation()}>
+					<div class="modal-header">
+						<h2>New Ride</h2>
+						<button class="close-btn" onclick={() => (showCreateModal = false)}>
+							<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<path d="M18 6L6 18M6 6l12 12" />
+							</svg>
+						</button>
+					</div>
+
+					<div class="modal-body">
+						<div class="field">
+							<label class="label" for="name">Ride Name</label>
+							<input
+								type="text"
+								id="name"
+								class="input"
+								placeholder="Saturday Morning Ride"
+								bind:value={rideName}
+								disabled={isCreating}
+							/>
+						</div>
+
+						<div class="field">
+							<label class="label" for="datetime">Date & Time <span class="optional">(optional)</span></label>
+							<input
+								type="datetime-local"
+								id="datetime"
+								class="input"
+								bind:value={rideDateTime}
+								disabled={isCreating}
+							/>
+						</div>
+
+						{#if error}
+							<div class="error-msg">{error}</div>
+						{/if}
+					</div>
+
+					<div class="modal-footer">
+						<button class="btn btn-secondary" onclick={() => (showCreateModal = false)} disabled={isCreating}>
+							Cancel
+						</button>
+						<button class="btn btn-primary" onclick={createRide} disabled={isCreating}>
+							{isCreating ? 'Creating...' : 'Create Ride'}
+						</button>
+					</div>
+				</div>
+			</div>
+		{/if}
+	</MapLayout>
+{:else}
+	<div class="loading">
+		<span>Loading...</span>
 	</div>
-</div>
+{/if}
+
+<style>
+	.sidebar {
+		position: absolute;
+		top: 1rem;
+		left: 1rem;
+		bottom: 1rem;
+		width: 300px;
+		display: flex;
+		flex-direction: column;
+		background: var(--surface-overlay);
+		backdrop-filter: blur(12px);
+		border: 1px solid var(--border);
+		border-radius: var(--radius-md);
+		box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
+	}
+
+	.sidebar-header {
+		padding: 1.25rem;
+		border-bottom: 1px solid var(--border);
+	}
+
+	.logo {
+		font-size: 0.6875rem;
+		font-weight: 600;
+		letter-spacing: 0.15em;
+		color: var(--accent);
+	}
+
+	.tagline {
+		margin-top: 0.5rem;
+		font-size: 0.875rem;
+		color: var(--text-secondary);
+		line-height: 1.4;
+	}
+
+	.sidebar-content {
+		flex: 1;
+		padding: 1.25rem;
+		overflow-y: auto;
+	}
+
+	.w-full {
+		width: 100%;
+	}
+
+	.info-section {
+		margin-top: 0.5rem;
+	}
+
+	.section-title {
+		font-size: 0.6875rem;
+		font-weight: 600;
+		letter-spacing: 0.1em;
+		text-transform: uppercase;
+		color: var(--text-muted);
+		margin-bottom: 1rem;
+	}
+
+	.steps {
+		list-style: none;
+		padding: 0;
+		margin: 0;
+	}
+
+	.steps li {
+		display: flex;
+		gap: 0.75rem;
+		margin-bottom: 0.875rem;
+	}
+
+	.step-num {
+		font-family: 'JetBrains Mono', monospace;
+		font-size: 0.6875rem;
+		color: var(--text-muted);
+	}
+
+	.step-text {
+		font-size: 0.8125rem;
+		color: var(--text-secondary);
+		line-height: 1.4;
+	}
+
+	.sidebar-footer {
+		padding: 1rem 1.25rem;
+		border-top: 1px solid var(--border);
+	}
+
+	.footer-text {
+		font-size: 0.75rem;
+		color: var(--text-muted);
+	}
+
+	/* Modal */
+	.modal-overlay {
+		position: absolute;
+		inset: 0;
+		background: rgba(0, 0, 0, 0.6);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		padding: 1rem;
+	}
+
+	.modal {
+		width: 100%;
+		max-width: 400px;
+		background: var(--surface-secondary);
+		border: 1px solid var(--border);
+		border-radius: var(--radius-md);
+		box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+	}
+
+	.modal-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 1rem 1.25rem;
+		border-bottom: 1px solid var(--border);
+	}
+
+	.modal-header h2 {
+		font-size: 0.875rem;
+		font-weight: 600;
+		color: var(--text-primary);
+	}
+
+	.close-btn {
+		padding: 0.25rem;
+		background: transparent;
+		border: none;
+		color: var(--text-muted);
+		cursor: pointer;
+	}
+
+	.close-btn:hover {
+		color: var(--text-primary);
+	}
+
+	.modal-body {
+		padding: 1.25rem;
+	}
+
+	.field {
+		margin-bottom: 1rem;
+	}
+
+	.field:last-child {
+		margin-bottom: 0;
+	}
+
+	.optional {
+		color: var(--text-muted);
+		font-weight: 400;
+		text-transform: none;
+		letter-spacing: normal;
+	}
+
+	.error-msg {
+		margin-top: 1rem;
+		padding: 0.625rem 0.75rem;
+		background: rgba(196, 92, 92, 0.1);
+		border: 1px solid var(--error);
+		border-radius: var(--radius-sm);
+		color: var(--error);
+		font-size: 0.8125rem;
+	}
+
+	.modal-footer {
+		display: flex;
+		gap: 0.75rem;
+		justify-content: flex-end;
+		padding: 1rem 1.25rem;
+		border-top: 1px solid var(--border);
+	}
+
+	.loading {
+		position: fixed;
+		inset: 0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background: var(--surface-primary);
+		color: var(--text-muted);
+		font-size: 0.8125rem;
+	}
+
+	@media (max-width: 640px) {
+		.sidebar {
+			top: auto;
+			left: 0;
+			right: 0;
+			bottom: 0;
+			width: auto;
+			max-height: 50vh;
+			border-left: none;
+			border-right: none;
+			border-bottom: none;
+		}
+	}
+</style>
