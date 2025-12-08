@@ -79,7 +79,7 @@
 				<h1 class="ride-name">{data.ride.name}</h1>
 				{#if data.ride.date}
 					<div class="ride-date mono">
-						{new Date(data.ride.date + 'T00:00:00').toLocaleDateString('en-US', {
+						{new Date(data.ride.date).toLocaleDateString('en-US', {
 							weekday: 'short',
 							month: 'short',
 							day: 'numeric'
