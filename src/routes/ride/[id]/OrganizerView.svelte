@@ -6,7 +6,7 @@
 		ride: {
 			id: string;
 			name: string;
-			date_time: string | null;
+			date: string | null;
 			status: string;
 			generated_routes: unknown;
 		};
@@ -71,13 +71,12 @@
 	<div class="sidebar-header">
 		<a href="/" class="logo">PEDALPARTY</a>
 		<h1 class="ride-name">{ride.name}</h1>
-		{#if ride.date_time}
+		{#if ride.date}
 			<div class="ride-date mono">
-				{new Date(ride.date_time).toLocaleDateString('en-US', {
+				{new Date(ride.date + 'T00:00:00').toLocaleDateString('en-US', {
+					weekday: 'short',
 					month: 'short',
-					day: 'numeric',
-					hour: 'numeric',
-					minute: '2-digit'
+					day: 'numeric'
 				})}
 			</div>
 		{/if}

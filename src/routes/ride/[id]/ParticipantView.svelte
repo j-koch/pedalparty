@@ -6,7 +6,7 @@
 		ride: {
 			id: string;
 			name: string;
-			date_time: string | null;
+			date: string | null;
 		};
 	}
 
@@ -17,6 +17,8 @@
 	let distanceKm = $state(30);
 	let routeType = $state<RouteType>('no_preference');
 	let selectedVibes = $state<Vibe[]>([]);
+	let earliestStart = $state('08:00');
+	let latestEnd = $state('17:00');
 
 	let isSubmitting = $state(false);
 	let isSubmitted = $state(false);
@@ -129,6 +131,10 @@
 					distance_preference_km: distanceKm,
 					route_type: routeType,
 					vibes: selectedVibes,
+					time_availability: {
+						earliest_start: earliestStart,
+						latest_end: latestEnd
+					},
 					visitor_token: visitorToken
 				})
 			});
@@ -154,13 +160,12 @@
 	<div class="sidebar-header">
 		<a href="/" class="logo">PEDALPARTY</a>
 		<h1 class="ride-name">{ride.name}</h1>
-		{#if ride.date_time}
+		{#if ride.date}
 			<div class="ride-date mono">
-				{new Date(ride.date_time).toLocaleDateString('en-US', {
+				{new Date(ride.date + 'T00:00:00').toLocaleDateString('en-US', {
+					weekday: 'short',
 					month: 'short',
-					day: 'numeric',
-					hour: 'numeric',
-					minute: '2-digit'
+					day: 'numeric'
 				})}
 			</div>
 		{/if}
@@ -242,6 +247,32 @@
 							{vibe.label}
 						</button>
 					{/each}
+				</div>
+			</div>
+
+			<!-- Time Availability -->
+			<div class="section">
+				<div class="label">Time Availability</div>
+				<div class="time-inputs">
+					<div class="time-field">
+						<label class="time-label" for="earliest">Earliest</label>
+						<input
+							type="time"
+							id="earliest"
+							class="input time-input"
+							bind:value={earliestStart}
+						/>
+					</div>
+					<span class="time-separator">to</span>
+					<div class="time-field">
+						<label class="time-label" for="latest">Latest</label>
+						<input
+							type="time"
+							id="latest"
+							class="input time-input"
+							bind:value={latestEnd}
+						/>
+					</div>
 				</div>
 			</div>
 		{/if}
@@ -423,6 +454,35 @@
 		display: flex;
 		flex-wrap: wrap;
 		gap: 0.375rem;
+	}
+
+	/* Time Availability */
+	.time-inputs {
+		display: flex;
+		align-items: flex-end;
+		gap: 0.5rem;
+	}
+
+	.time-field {
+		flex: 1;
+	}
+
+	.time-label {
+		display: block;
+		font-size: 0.6875rem;
+		color: var(--text-muted);
+		margin-bottom: 0.25rem;
+	}
+
+	.time-input {
+		width: 100%;
+		font-family: 'JetBrains Mono', monospace;
+	}
+
+	.time-separator {
+		font-size: 0.75rem;
+		color: var(--text-muted);
+		padding-bottom: 0.625rem;
 	}
 
 	/* Success State */

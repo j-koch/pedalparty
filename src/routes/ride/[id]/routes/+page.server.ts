@@ -23,7 +23,7 @@ export const load: PageServerLoad = async ({ params }) => {
 		ride: {
 			id: ride.id,
 			name: ride.name,
-			date_time: ride.date_time
+			date: ride.date
 		},
 		routes: ride.generated_routes
 	};

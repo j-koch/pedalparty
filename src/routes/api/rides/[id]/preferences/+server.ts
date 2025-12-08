@@ -13,6 +13,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
 			distance_preference_km,
 			route_type,
 			vibes,
+			time_availability,
 			visitor_token
 		} = body;
 
@@ -47,6 +48,19 @@ export const POST: RequestHandler = async ({ params, request }) => {
 			? vibes.filter((v: string) => validVibes.includes(v as Vibe))
 			: [];
 
+		// Validate time_availability if provided
+		let sanitizedTimeAvailability = null;
+		if (time_availability && typeof time_availability === 'object') {
+			const { earliest_start, latest_end } = time_availability;
+			if (typeof earliest_start === 'string' && typeof latest_end === 'string') {
+				// Basic HH:MM format validation
+				const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/;
+				if (timeRegex.test(earliest_start) && timeRegex.test(latest_end)) {
+					sanitizedTimeAvailability = { earliest_start, latest_end };
+				}
+			}
+		}
+
 		// Check if this visitor already submitted
 		if (visitor_token) {
 			const { data: existing } = await supabase
@@ -65,6 +79,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
 						distance_preference_km,
 						route_type: sanitizedRouteType,
 						vibes: sanitizedVibes,
+						time_availability: sanitizedTimeAvailability,
 						submitted_at: new Date().toISOString()
 					})
 					.eq('id', existing.id);
@@ -92,6 +107,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
 				distance_preference_km,
 				route_type: sanitizedRouteType,
 				vibes: sanitizedVibes,
+				time_availability: sanitizedTimeAvailability,
 				visitor_token: newVisitorToken
 			});
 

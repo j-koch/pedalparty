@@ -5,7 +5,7 @@
 	let MapLayout: typeof import('$lib/components/MapLayout.svelte').default | null = $state(null);
 	let showCreateModal = $state(false);
 	let rideName = $state('');
-	let rideDateTime = $state('');
+	let rideDate = $state('');
 	let isCreating = $state(false);
 	let error = $state('');
 
@@ -29,7 +29,7 @@
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
 					name: rideName.trim(),
-					date_time: rideDateTime || null
+					date: rideDate || null
 				})
 			});
 
@@ -127,12 +127,12 @@
 						</div>
 
 						<div class="field">
-							<label class="label" for="datetime">Date & Time <span class="optional">(optional)</span></label>
+							<label class="label" for="date">Date <span class="optional">(optional)</span></label>
 							<input
-								type="datetime-local"
-								id="datetime"
+								type="date"
+								id="date"
 								class="input"
-								bind:value={rideDateTime}
+								bind:value={rideDate}
 								disabled={isCreating}
 							/>
 						</div>

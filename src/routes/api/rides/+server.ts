@@ -6,7 +6,7 @@ import { generateRideId, generateOrganizerToken } from '$lib/utils';
 export const POST: RequestHandler = async ({ request }) => {
 	try {
 		const body = await request.json();
-		const { name, date_time } = body;
+		const { name, date } = body;
 
 		if (!name || typeof name !== 'string' || name.trim().length === 0) {
 			return json({ error: 'Ride name is required' }, { status: 400 });
@@ -20,7 +20,7 @@ export const POST: RequestHandler = async ({ request }) => {
 			.insert({
 				id: rideId,
 				name: name.trim(),
-				date_time: date_time || null,
+				date: date || null,
 				organizer_token: organizerToken,
 				status: 'collecting',
 				generated_routes: null

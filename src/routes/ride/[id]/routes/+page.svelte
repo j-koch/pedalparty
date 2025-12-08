@@ -36,6 +36,26 @@
 		}))
 	);
 
+	// Collect all unique POIs from all routes
+	const allPois = $derived.by(() => {
+		const seen = new Set<string>();
+		const pois: { name: string; type: string; lat: number; lng: number }[] = [];
+
+		for (const route of routes) {
+			if (route.pois) {
+				for (const poi of route.pois) {
+					const key = `${poi.lat},${poi.lng}`;
+					if (!seen.has(key)) {
+						seen.add(key);
+						pois.push(poi);
+					}
+				}
+			}
+		}
+
+		return pois;
+	});
+
 	function selectRoute(id: string) {
 		selectedRouteId = selectedRouteId === id ? null : id;
 	}
@@ -52,18 +72,17 @@
 </svelte:head>
 
 {#if MapLayout}
-	<MapLayout routes={mapRoutes} {selectedRouteId}>
+	<MapLayout routes={mapRoutes} pois={allPois} {selectedRouteId}>
 		<aside class="sidebar">
 			<div class="sidebar-header">
 				<a href="/" class="logo">PEDALPARTY</a>
 				<h1 class="ride-name">{data.ride.name}</h1>
-				{#if data.ride.date_time}
+				{#if data.ride.date}
 					<div class="ride-date mono">
-						{new Date(data.ride.date_time).toLocaleDateString('en-US', {
+						{new Date(data.ride.date + 'T00:00:00').toLocaleDateString('en-US', {
+							weekday: 'short',
 							month: 'short',
-							day: 'numeric',
-							hour: 'numeric',
-							minute: '2-digit'
+							day: 'numeric'
 						})}
 					</div>
 				{/if}

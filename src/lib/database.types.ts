@@ -18,11 +18,16 @@ export type Vibe =
 export interface Ride {
 	id: string;
 	name: string;
-	date_time: string | null;
+	date: string | null;
 	organizer_token: string;
 	created_at: string;
 	status: RideStatus;
 	generated_routes: GeneratedRoute[] | null;
+}
+
+export interface TimeAvailability {
+	earliest_start: string; // HH:MM format
+	latest_end: string; // HH:MM format
 }
 
 export interface Preference {
@@ -32,6 +37,7 @@ export interface Preference {
 	distance_preference_km: number;
 	route_type: RouteType;
 	vibes: Vibe[];
+	time_availability: TimeAvailability | null;
 	submitted_at: string;
 	visitor_token: string;
 }
