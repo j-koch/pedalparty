@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { goto } from '$app/navigation';
 	import type { Vibe, RouteType } from '$lib/database.types';
 
 	interface Props {
@@ -24,6 +25,12 @@
 	let isSubmitted = $state(false);
 	let error = $state('');
 	let visitorToken = $state<string | null>(null);
+
+	// PIN recovery state
+	let showPinModal = $state(false);
+	let pinInput = $state('');
+	let pinError = $state('');
+	let isVerifying = $state(false);
 
 	let mapReady = $state(false);
 	let map: L.Map | null = null;
@@ -154,6 +161,37 @@
 			isSubmitting = false;
 		}
 	}
+
+	async function verifyPin() {
+		if (!pinInput.trim()) {
+			pinError = 'Enter your PIN';
+			return;
+		}
+
+		isVerifying = true;
+		pinError = '';
+
+		try {
+			const response = await fetch(`/api/rides/${ride.id}/verify-pin`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ pin: pinInput.trim() })
+			});
+
+			const data = await response.json();
+
+			if (!response.ok) {
+				throw new Error(data.error || 'Invalid PIN');
+			}
+
+			// Store the organizer token and redirect
+			localStorage.setItem(`organizer_${ride.id}`, data.organizer_token);
+			goto(data.organizer_url);
+		} catch (err) {
+			pinError = err instanceof Error ? err.message : 'Something went wrong';
+			isVerifying = false;
+		}
+	}
 </script>
 
 <aside class="sidebar">
@@ -169,6 +207,9 @@
 				})}
 			</div>
 		{/if}
+		<button class="organizer-link" onclick={() => (showPinModal = true)}>
+			I'm the organizer
+		</button>
 	</div>
 
 	<div class="sidebar-content">
@@ -293,6 +334,52 @@
 		</div>
 	{/if}
 </aside>
+
+<!-- PIN Recovery Modal -->
+{#if showPinModal}
+	<div class="modal-overlay" onclick={() => (showPinModal = false)}>
+		<div class="modal" onclick={(e) => e.stopPropagation()}>
+			<div class="modal-header">
+				<h2>Organizer Access</h2>
+				<button class="close-btn" onclick={() => (showPinModal = false)}>
+					<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<path d="M18 6L6 18M6 6l12 12" />
+					</svg>
+				</button>
+			</div>
+
+			<div class="modal-body">
+				<p class="modal-text">Enter your 6-digit PIN to access the organizer dashboard.</p>
+
+				<div class="field">
+					<label class="label" for="pin">PIN</label>
+					<input
+						type="text"
+						id="pin"
+						class="input pin-input"
+						placeholder="000000"
+						maxlength="6"
+						bind:value={pinInput}
+						disabled={isVerifying}
+					/>
+				</div>
+
+				{#if pinError}
+					<div class="error-msg">{pinError}</div>
+				{/if}
+			</div>
+
+			<div class="modal-footer">
+				<button class="btn btn-secondary" onclick={() => (showPinModal = false)} disabled={isVerifying}>
+					Cancel
+				</button>
+				<button class="btn btn-primary" onclick={verifyPin} disabled={isVerifying}>
+					{isVerifying ? 'Verifying...' : 'Access Dashboard'}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
 
 <style>
 	.sidebar {
@@ -532,6 +619,100 @@
 		border-radius: var(--radius-sm);
 		color: var(--error);
 		font-size: 0.75rem;
+	}
+
+	/* Organizer Link */
+	.organizer-link {
+		margin-top: 0.75rem;
+		padding: 0;
+		font-size: 0.75rem;
+		color: var(--text-muted);
+		background: none;
+		border: none;
+		cursor: pointer;
+		text-decoration: underline;
+		text-underline-offset: 2px;
+	}
+
+	.organizer-link:hover {
+		color: var(--text-secondary);
+	}
+
+	/* Modal */
+	.modal-overlay {
+		position: fixed;
+		inset: 0;
+		background: rgba(0, 0, 0, 0.6);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		padding: 1rem;
+		z-index: 1000;
+	}
+
+	.modal {
+		width: 100%;
+		max-width: 360px;
+		background: var(--surface-secondary);
+		border: 1px solid var(--border);
+		border-radius: var(--radius-md);
+		box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+	}
+
+	.modal-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 1rem 1.25rem;
+		border-bottom: 1px solid var(--border);
+	}
+
+	.modal-header h2 {
+		font-size: 0.875rem;
+		font-weight: 600;
+		color: var(--text-primary);
+	}
+
+	.close-btn {
+		padding: 0.25rem;
+		background: transparent;
+		border: none;
+		color: var(--text-muted);
+		cursor: pointer;
+	}
+
+	.close-btn:hover {
+		color: var(--text-primary);
+	}
+
+	.modal-body {
+		padding: 1.25rem;
+	}
+
+	.modal-text {
+		font-size: 0.8125rem;
+		color: var(--text-secondary);
+		margin-bottom: 1rem;
+		line-height: 1.5;
+	}
+
+	.field {
+		margin-bottom: 1rem;
+	}
+
+	.pin-input {
+		font-family: 'JetBrains Mono', monospace;
+		font-size: 1.25rem;
+		letter-spacing: 0.2em;
+		text-align: center;
+	}
+
+	.modal-footer {
+		display: flex;
+		gap: 0.75rem;
+		justify-content: flex-end;
+		padding: 1rem 1.25rem;
+		border-top: 1px solid var(--border);
 	}
 
 	@media (max-width: 640px) {

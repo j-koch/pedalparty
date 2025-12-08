@@ -20,6 +20,7 @@ export interface Ride {
 	name: string;
 	date: string | null;
 	organizer_token: string;
+	pin: string;
 	created_at: string;
 	status: RideStatus;
 	generated_routes: GeneratedRoute[] | null;

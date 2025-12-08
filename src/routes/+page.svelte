@@ -4,10 +4,12 @@
 
 	let MapLayout: typeof import('$lib/components/MapLayout.svelte').default | null = $state(null);
 	let showCreateModal = $state(false);
+	let showSuccessModal = $state(false);
 	let rideName = $state('');
 	let rideDate = $state('');
 	let isCreating = $state(false);
 	let error = $state('');
+	let createdRide = $state<{ pin: string; organizer_url: string; share_url: string } | null>(null);
 
 	onMount(async () => {
 		const module = await import('$lib/components/MapLayout.svelte');
@@ -40,10 +42,23 @@
 			}
 
 			localStorage.setItem(`organizer_${data.ride_id}`, data.organizer_token);
-			goto(data.organizer_url);
+			createdRide = {
+				pin: data.pin,
+				organizer_url: data.organizer_url,
+				share_url: data.share_url
+			};
+			showCreateModal = false;
+			showSuccessModal = true;
+			isCreating = false;
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'Something went wrong';
 			isCreating = false;
+		}
+	}
+
+	function continueToRide() {
+		if (createdRide) {
+			goto(createdRide.organizer_url);
 		}
 	}
 
@@ -148,6 +163,37 @@
 						</button>
 						<button class="btn btn-primary" onclick={createRide} disabled={isCreating}>
 							{isCreating ? 'Creating...' : 'Create Ride'}
+						</button>
+					</div>
+				</div>
+			</div>
+		{/if}
+
+		<!-- Success Modal with PIN -->
+		{#if showSuccessModal && createdRide}
+			<div class="modal-overlay">
+				<div class="modal success-modal">
+					<div class="modal-body">
+						<div class="success-icon">
+							<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<path d="M20 6L9 17l-5-5" />
+							</svg>
+						</div>
+						<h2 class="success-title">Ride Created!</h2>
+						<p class="success-subtitle">Save your recovery PIN</p>
+
+						<div class="pin-display">
+							<span class="pin-value">{createdRide.pin}</span>
+						</div>
+
+						<p class="pin-note">
+							Use this PIN to access your organizer dashboard if you lose the link.
+						</p>
+					</div>
+
+					<div class="modal-footer">
+						<button class="btn btn-primary w-full" onclick={continueToRide}>
+							Continue to Dashboard
 						</button>
 					</div>
 				</div>
@@ -333,6 +379,68 @@
 		justify-content: flex-end;
 		padding: 1rem 1.25rem;
 		border-top: 1px solid var(--border);
+	}
+
+	/* Success Modal */
+	.success-modal {
+		text-align: center;
+	}
+
+	.success-modal .modal-body {
+		padding: 2rem 1.5rem 1.5rem;
+	}
+
+	.success-icon {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 56px;
+		height: 56px;
+		background: rgba(74, 157, 107, 0.15);
+		border-radius: 50%;
+		color: var(--success);
+		margin-bottom: 1rem;
+	}
+
+	.success-title {
+		font-size: 1.125rem;
+		font-weight: 600;
+		color: var(--text-primary);
+		margin-bottom: 0.25rem;
+	}
+
+	.success-subtitle {
+		font-size: 0.8125rem;
+		color: var(--text-secondary);
+		margin-bottom: 1.25rem;
+	}
+
+	.pin-display {
+		background: var(--gray-100);
+		border: 2px dashed var(--border);
+		border-radius: var(--radius-sm);
+		padding: 1rem;
+		margin-bottom: 1rem;
+	}
+
+	.pin-value {
+		font-family: 'JetBrains Mono', monospace;
+		font-size: 2rem;
+		font-weight: 600;
+		letter-spacing: 0.2em;
+		color: var(--text-primary);
+	}
+
+	.pin-note {
+		font-size: 0.75rem;
+		color: var(--text-muted);
+		line-height: 1.5;
+	}
+
+	.success-modal .modal-footer {
+		justify-content: center;
+		border-top: none;
+		padding-top: 0;
 	}
 
 	.loading {

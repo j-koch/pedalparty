@@ -1,7 +1,7 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { supabase } from '$lib/supabase';
-import { generateRideId, generateOrganizerToken } from '$lib/utils';
+import { generateRideId, generateOrganizerToken, generatePin } from '$lib/utils';
 
 export const POST: RequestHandler = async ({ request }) => {
 	try {
@@ -14,6 +14,7 @@ export const POST: RequestHandler = async ({ request }) => {
 
 		const rideId = generateRideId();
 		const organizerToken = generateOrganizerToken();
+		const pin = generatePin();
 
 		const { data, error } = await supabase
 			.from('rides')
@@ -22,6 +23,7 @@ export const POST: RequestHandler = async ({ request }) => {
 				name: name.trim(),
 				date: date || null,
 				organizer_token: organizerToken,
+				pin,
 				status: 'collecting',
 				generated_routes: null
 			})
@@ -36,6 +38,7 @@ export const POST: RequestHandler = async ({ request }) => {
 		return json({
 			ride_id: data.id,
 			organizer_token: organizerToken,
+			pin,
 			share_url: `/ride/${data.id}`,
 			organizer_url: `/ride/${data.id}?org=${organizerToken}`
 		});

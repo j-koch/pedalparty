@@ -22,6 +22,13 @@ export function generateVisitorToken(): string {
 }
 
 /**
+ * Generate a 6-digit numeric PIN for organizer recovery
+ */
+export function generatePin(): string {
+	return Math.floor(100000 + Math.random() * 900000).toString();
+}
+
+/**
  * Calculate the geographic centroid of multiple points
  */
 export function calculateCentroid(
