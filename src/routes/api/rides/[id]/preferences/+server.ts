@@ -2,7 +2,7 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { supabase } from '$lib/supabase';
 import { generateVisitorToken } from '$lib/utils';
-import type { Vibe, RouteType } from '$lib/database.types';
+import type { RouteType, SelectedPOI } from '$lib/database.types';
 
 export const POST: RequestHandler = async ({ params, request }) => {
 	try {
@@ -12,7 +12,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
 			start_location,
 			distance_preference_km,
 			route_type,
-			vibes,
+			selected_pois,
 			time_availability,
 			visitor_token
 		} = body;
@@ -38,14 +38,22 @@ export const POST: RequestHandler = async ({ params, request }) => {
 		}
 
 		const validRouteTypes: RouteType[] = ['loop', 'out_and_back', 'no_preference'];
-		const validVibes: Vibe[] = [
-			'coffee_shop', 'scenic_views', 'low_traffic', 'gravel_ok',
-			'waterfront', 'minimize_hills', 'maximize_hills'
-		];
 
 		const sanitizedRouteType = validRouteTypes.includes(route_type) ? route_type : 'no_preference';
-		const sanitizedVibes = Array.isArray(vibes)
-			? vibes.filter((v: string) => validVibes.includes(v as Vibe))
+
+		// Validate and sanitize selected POIs
+		const sanitizedPois: SelectedPOI[] = Array.isArray(selected_pois)
+			? selected_pois.filter((poi: unknown): poi is SelectedPOI => {
+					if (typeof poi !== 'object' || poi === null) return false;
+					const p = poi as Record<string, unknown>;
+					return (
+						typeof p.id === 'string' &&
+						typeof p.name === 'string' &&
+						typeof p.category === 'string' &&
+						typeof p.lat === 'number' &&
+						typeof p.lng === 'number'
+					);
+				})
 			: [];
 
 		// Validate time_availability if provided
@@ -78,7 +86,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
 						start_location,
 						distance_preference_km,
 						route_type: sanitizedRouteType,
-						vibes: sanitizedVibes,
+						selected_pois: sanitizedPois,
 						time_availability: sanitizedTimeAvailability,
 						submitted_at: new Date().toISOString()
 					})
@@ -106,7 +114,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
 				start_location,
 				distance_preference_km,
 				route_type: sanitizedRouteType,
-				vibes: sanitizedVibes,
+				selected_pois: sanitizedPois,
 				time_availability: sanitizedTimeAvailability,
 				visitor_token: newVisitorToken
 			});

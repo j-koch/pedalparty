@@ -2,9 +2,12 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { supabase } from '$lib/supabase';
 import { calculateCentroid, median, majorityVote } from '$lib/utils';
-import { generateRouteVariations } from '$lib/server/graphhopper';
-import { findPOIsForVibes } from '$lib/server/overpass';
-import type { Vibe, RouteType, GeneratedRoute } from '$lib/database.types';
+import {
+	generateRouteVariations,
+	getRouteWithWaypoints,
+	orderWaypointsTSP
+} from '$lib/server/graphhopper';
+import type { RouteType, GeneratedRoute, SelectedPOI } from '$lib/database.types';
 import { nanoid } from 'nanoid';
 
 export const POST: RequestHandler = async ({ params, url }) => {
@@ -15,7 +18,7 @@ export const POST: RequestHandler = async ({ params, url }) => {
 		return json({ error: 'Organizer token required' }, { status: 401 });
 	}
 
-	// Verify organizer token
+	// Verify organizer token and get waypoints
 	const { data: ride, error: rideError } = await supabase
 		.from('rides')
 		.select('*')
@@ -56,70 +59,59 @@ export const POST: RequestHandler = async ({ params, url }) => {
 		const routeTypes = preferences.map((p) => p.route_type as RouteType);
 		const preferredRouteType = majorityVote(routeTypes, 'loop');
 
-		// Count vibes
-		const vibeCounts = new Map<Vibe, number>();
-		for (const pref of preferences) {
-			for (const vibe of pref.vibes as Vibe[]) {
-				vibeCounts.set(vibe, (vibeCounts.get(vibe) || 0) + 1);
-			}
-		}
+		// Get organizer's selected waypoints
+		const selectedWaypoints = (ride.selected_waypoints || []) as SelectedPOI[];
 
-		// Get top vibes (requested by at least 1 person)
-		const topVibes = Array.from(vibeCounts.entries())
-			.sort((a, b) => b[1] - a[1])
-			.map(([vibe]) => vibe);
+		let generatedRoutes: GeneratedRoute[];
 
-		// Generate routes using GraphHopper
-		const graphhopperRoutes = await generateRouteVariations(centroid, targetDistance, 2);
+		if (selectedWaypoints.length > 0) {
+			// Generate route through waypoints
+			const waypointCoords = selectedWaypoints.map((wp) => ({ lat: wp.lat, lng: wp.lng }));
+			const route = await getRouteWithWaypoints(centroid, waypointCoords);
 
-		if (graphhopperRoutes.length === 0) {
-			return json({ error: 'Could not generate routes for this area' }, { status: 500 });
-		}
-
-		// Query POIs if vibes include coffee_shop or scenic_views
-		let pois: { name: string; type: string; lat: number; lng: number }[] = [];
-		if (topVibes.length > 0) {
-			pois = await findPOIsForVibes(centroid.lat, centroid.lng, targetDistance, topVibes);
-		}
-
-		// Build generated routes
-		const generatedRoutes: GeneratedRoute[] = graphhopperRoutes.map((route, index) => {
-			// Convert GraphHopper coordinates [lng, lat] to GeoJSON LineString
-			const geometry = {
-				type: 'LineString' as const,
-				coordinates: route.points.coordinates
-			};
-
-			// Find which vibes this route satisfies
-			const matchedVibes: Vibe[] = [];
-
-			// Check for elevation-related vibes
-			const avgGradient = route.ascend / (route.distance / 1000);
-			if (topVibes.includes('minimize_hills') && avgGradient < 10) {
-				matchedVibes.push('minimize_hills');
-			}
-			if (topVibes.includes('maximize_hills') && avgGradient > 15) {
-				matchedVibes.push('maximize_hills');
+			if (!route) {
+				return json({ error: 'Could not generate route through waypoints' }, { status: 500 });
 			}
 
-			// Add vibes that we queried POIs for
-			if (topVibes.includes('coffee_shop') && pois.some((p) => p.type === 'cafe')) {
-				matchedVibes.push('coffee_shop');
-			}
-			if (topVibes.includes('scenic_views') && pois.some((p) => p.type === 'viewpoint')) {
-				matchedVibes.push('scenic_views');
+			// Order waypoints in the same way as the route
+			const orderedWaypoints = orderWaypointsTSP(centroid, waypointCoords);
+			const orderedSelectedWaypoints = orderedWaypoints.map((coord) => {
+				return selectedWaypoints.find((wp) => wp.lat === coord.lat && wp.lng === coord.lng)!;
+			});
+
+			generatedRoutes = [
+				{
+					id: nanoid(8),
+					name: 'Route with Stops',
+					distance_km: Math.round(route.distance / 100) / 10,
+					elevation_gain_m: Math.round(route.ascend),
+					geometry: {
+						type: 'LineString' as const,
+						coordinates: route.points.coordinates
+					},
+					waypoints: orderedSelectedWaypoints
+				}
+			];
+		} else {
+			// Fall back to round-trip generation when no waypoints
+			const graphhopperRoutes = await generateRouteVariations(centroid, targetDistance, 2);
+
+			if (graphhopperRoutes.length === 0) {
+				return json({ error: 'Could not generate routes for this area' }, { status: 500 });
 			}
 
-			return {
+			generatedRoutes = graphhopperRoutes.map((route, index) => ({
 				id: nanoid(8),
 				name: index === 0 ? 'Recommended Route' : `Alternative ${index}`,
-				distance_km: Math.round(route.distance / 100) / 10, // Convert to km with 1 decimal
+				distance_km: Math.round(route.distance / 100) / 10,
 				elevation_gain_m: Math.round(route.ascend),
-				geometry,
-				matched_vibes: matchedVibes,
-				pois: pois.slice(0, 5) // Limit POIs to 5
-			};
-		});
+				geometry: {
+					type: 'LineString' as const,
+					coordinates: route.points.coordinates
+				},
+				waypoints: []
+			}));
+		}
 
 		// Update ride with generated routes
 		const { error: updateError } = await supabase
@@ -141,7 +133,7 @@ export const POST: RequestHandler = async ({ params, url }) => {
 				centroid,
 				targetDistance,
 				preferredRouteType,
-				topVibes,
+				waypointCount: selectedWaypoints.length,
 				participantCount: preferences.length
 			}
 		});

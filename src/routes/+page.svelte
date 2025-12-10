@@ -11,6 +11,27 @@
 	let error = $state('');
 	let createdRide = $state<{ pin: string; organizer_url: string; share_url: string } | null>(null);
 
+	// POI Categories
+	const DEFAULT_CATEGORIES = ['Coffee', 'Food', 'Viewpoints', 'Breweries'];
+	let categories = $state<string[]>([...DEFAULT_CATEGORIES]);
+	let newCategory = $state('');
+
+	function addCategory() {
+		const cat = newCategory.trim();
+		if (cat && !categories.includes(cat)) {
+			categories = [...categories, cat];
+			newCategory = '';
+		}
+	}
+
+	function removeCategory(cat: string) {
+		categories = categories.filter((c) => c !== cat);
+	}
+
+	function resetCategories() {
+		categories = [...DEFAULT_CATEGORIES];
+	}
+
 	onMount(async () => {
 		const module = await import('$lib/components/MapLayout.svelte');
 		MapLayout = module.default;
@@ -31,7 +52,8 @@
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
 					name: rideName.trim(),
-					date: rideDate || null
+					date: rideDate || null,
+					categories: categories.length > 0 ? categories : undefined
 				})
 			});
 
@@ -150,6 +172,44 @@
 								bind:value={rideDate}
 								disabled={isCreating}
 							/>
+						</div>
+
+						<div class="field">
+							<div class="label-row">
+								<span class="label">POI Categories</span>
+								{#if categories.length !== DEFAULT_CATEGORIES.length || !categories.every((c) => DEFAULT_CATEGORIES.includes(c))}
+									<button class="reset-link" onclick={resetCategories} disabled={isCreating}>
+										Reset
+									</button>
+								{/if}
+							</div>
+							<div class="category-chips">
+								{#each categories as cat}
+									<span class="category-chip">
+										{cat}
+										<button
+											class="chip-remove"
+											onclick={() => removeCategory(cat)}
+											disabled={isCreating}
+										>
+											×
+										</button>
+									</span>
+								{/each}
+							</div>
+							<div class="add-category">
+								<input
+									type="text"
+									class="input"
+									placeholder="Add custom category..."
+									bind:value={newCategory}
+									disabled={isCreating}
+									onkeydown={(e) => e.key === 'Enter' && (e.preventDefault(), addCategory())}
+								/>
+								<button class="btn btn-secondary" onclick={addCategory} disabled={isCreating || !newCategory.trim()}>
+									Add
+								</button>
+							</div>
 						</div>
 
 						{#if error}
@@ -361,6 +421,74 @@
 		font-weight: 400;
 		text-transform: none;
 		letter-spacing: normal;
+	}
+
+	.label-row {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 0.5rem;
+	}
+
+	.reset-link {
+		padding: 0;
+		font-size: 0.75rem;
+		color: var(--text-muted);
+		background: none;
+		border: none;
+		cursor: pointer;
+		text-decoration: underline;
+	}
+
+	.reset-link:hover {
+		color: var(--text-secondary);
+	}
+
+	.category-chips {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.375rem;
+		margin-bottom: 0.5rem;
+	}
+
+	.category-chip {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.25rem;
+		padding: 0.25rem 0.5rem;
+		font-size: 0.75rem;
+		background: var(--gray-100);
+		border: 1px solid var(--border);
+		border-radius: var(--radius-sm);
+		color: var(--text-secondary);
+	}
+
+	.chip-remove {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 14px;
+		height: 14px;
+		padding: 0;
+		font-size: 0.875rem;
+		line-height: 1;
+		color: var(--text-muted);
+		background: none;
+		border: none;
+		cursor: pointer;
+	}
+
+	.chip-remove:hover {
+		color: var(--error);
+	}
+
+	.add-category {
+		display: flex;
+		gap: 0.5rem;
+	}
+
+	.add-category .input {
+		flex: 1;
 	}
 
 	.error-msg {

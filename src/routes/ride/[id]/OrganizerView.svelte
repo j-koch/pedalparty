@@ -1,6 +1,12 @@
 <script lang="ts">
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
+	import type { SelectedPOI } from '$lib/database.types';
+
+	interface POISuggestion {
+		poi: { id: string; name: string; lat: number; lng: number };
+		count: number;
+	}
 
 	interface Props {
 		ride: {
@@ -8,12 +14,13 @@
 			name: string;
 			date: string | null;
 			status: string;
+			categories: string[];
 			generated_routes: unknown;
 		};
 		preferencesSummary: {
 			count: number;
 			avgDistance: number;
-			vibeCounts: Record<string, number>;
+			poiByCategory: Record<string, POISuggestion[]>;
 			routeTypeCounts: Record<string, number>;
 		} | null;
 		orgToken: string | null;
@@ -24,19 +31,59 @@
 	let copied = $state(false);
 	let isGenerating = $state(false);
 	let generateError = $state('');
+	let selectedWaypoints = $state<SelectedPOI[]>([]);
+	let isSavingWaypoints = $state(false);
 
 	const shareUrl = $derived(`${$page.url.origin}/ride/${ride.id}`);
 	const hasRoutes = $derived(ride.status === 'generated' && ride.generated_routes);
+	const hasPoiSuggestions = $derived(
+		preferencesSummary?.poiByCategory && Object.keys(preferencesSummary.poiByCategory).length > 0
+	);
 
-	const vibeLabels: Record<string, string> = {
-		coffee_shop: 'Coffee',
-		scenic_views: 'Scenic',
-		low_traffic: 'Low Traffic',
-		gravel_ok: 'Gravel',
-		waterfront: 'Waterfront',
-		minimize_hills: 'Flat',
-		maximize_hills: 'Hilly'
-	};
+	function selectWaypoint(category: string, poi: POISuggestion['poi']) {
+		// Remove any existing selection for this category
+		selectedWaypoints = selectedWaypoints.filter((w) => w.category !== category);
+
+		// Add new selection
+		selectedWaypoints = [
+			...selectedWaypoints,
+			{
+				id: poi.id,
+				name: poi.name,
+				category,
+				lat: poi.lat,
+				lng: poi.lng
+			}
+		];
+	}
+
+	function deselectWaypoint(category: string) {
+		selectedWaypoints = selectedWaypoints.filter((w) => w.category !== category);
+	}
+
+	function getSelectedWaypoint(category: string): SelectedPOI | undefined {
+		return selectedWaypoints.find((w) => w.category === category);
+	}
+
+	async function saveWaypoints() {
+		isSavingWaypoints = true;
+		try {
+			const response = await fetch(`/api/rides/${ride.id}/waypoints?token=${orgToken}`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ waypoints: selectedWaypoints })
+			});
+
+			if (!response.ok) {
+				const data = await response.json();
+				throw new Error(data.error || 'Failed to save waypoints');
+			}
+		} catch (err) {
+			console.error('Failed to save waypoints:', err);
+		} finally {
+			isSavingWaypoints = false;
+		}
+	}
 
 	async function copyLink() {
 		await navigator.clipboard.writeText(shareUrl);
@@ -135,19 +182,54 @@
 						</div>
 					</div>
 				{/if}
-
-				{#if Object.keys(preferencesSummary.vibeCounts).length > 0}
-					<div class="chips-section">
-						<div class="chips-label">Features</div>
-						<div class="chips">
-							{#each Object.entries(preferencesSummary.vibeCounts).sort((a, b) => b[1] - a[1]) as [vibe, count]}
-								<span class="chip chip-active">{vibeLabels[vibe] || vibe} ({count})</span>
-							{/each}
-						</div>
-					</div>
-				{/if}
 			{/if}
 		</div>
+
+		<!-- POI Suggestions -->
+		{#if hasPoiSuggestions}
+			<div class="divider"></div>
+			<div class="section">
+				<div class="label">Route Stops</div>
+				<p class="section-hint">Select places to include in the route</p>
+
+				{#each Object.entries(preferencesSummary?.poiByCategory || {}) as [category, suggestions]}
+					{@const selected = getSelectedWaypoint(category)}
+					<div class="poi-category">
+						<div class="category-label">{category}</div>
+
+						{#if selected}
+							<div class="selected-waypoint">
+								<span class="waypoint-name">{selected.name}</span>
+								<button class="waypoint-remove" onclick={() => deselectWaypoint(category)} aria-label="Remove selection">
+									<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+										<path d="M18 6L6 18M6 6l12 12" />
+									</svg>
+								</button>
+							</div>
+						{:else}
+							<div class="poi-suggestions">
+								{#each suggestions as { poi, count }}
+									<button class="poi-suggestion" onclick={() => selectWaypoint(category, poi)}>
+										<span class="suggestion-name">{poi.name}</span>
+										<span class="suggestion-votes">{count} vote{count !== 1 ? 's' : ''}</span>
+									</button>
+								{/each}
+							</div>
+						{/if}
+					</div>
+				{/each}
+
+				{#if selectedWaypoints.length > 0}
+					<button
+						class="btn btn-secondary btn-sm save-btn"
+						onclick={saveWaypoints}
+						disabled={isSavingWaypoints}
+					>
+						{isSavingWaypoints ? 'Saving...' : 'Save Selections'}
+					</button>
+				{/if}
+			</div>
+		{/if}
 	</div>
 
 	<div class="sidebar-footer">
@@ -321,6 +403,110 @@
 		border-radius: var(--radius-sm);
 		color: var(--error);
 		font-size: 0.75rem;
+	}
+
+	/* POI Selection Styles */
+	.section-hint {
+		font-size: 0.6875rem;
+		color: var(--text-muted);
+		margin-bottom: 0.75rem;
+	}
+
+	.poi-category {
+		margin-bottom: 0.75rem;
+		padding-bottom: 0.75rem;
+		border-bottom: 1px solid var(--border);
+	}
+
+	.poi-category:last-of-type {
+		margin-bottom: 0;
+		padding-bottom: 0;
+		border-bottom: none;
+	}
+
+	.category-label {
+		font-size: 0.6875rem;
+		font-weight: 500;
+		color: var(--text-secondary);
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		margin-bottom: 0.375rem;
+	}
+
+	.poi-suggestions {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+	}
+
+	.poi-suggestion {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		width: 100%;
+		padding: 0.5rem 0.625rem;
+		background: var(--surface-secondary);
+		border: 1px solid var(--border);
+		border-radius: var(--radius-sm);
+		cursor: pointer;
+		text-align: left;
+		transition: all 0.15s ease;
+	}
+
+	.poi-suggestion:hover {
+		background: var(--gray-100);
+		border-color: var(--accent);
+	}
+
+	.suggestion-name {
+		font-size: 0.8125rem;
+		color: var(--text-primary);
+	}
+
+	.suggestion-votes {
+		font-family: 'JetBrains Mono', monospace;
+		font-size: 0.6875rem;
+		color: var(--text-muted);
+	}
+
+	.selected-waypoint {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 0.5rem 0.625rem;
+		background: rgba(74, 157, 107, 0.1);
+		border: 1px solid var(--success);
+		border-radius: var(--radius-sm);
+	}
+
+	.waypoint-name {
+		font-size: 0.8125rem;
+		color: var(--text-primary);
+	}
+
+	.waypoint-remove {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		padding: 0.125rem;
+		background: transparent;
+		border: none;
+		color: var(--text-muted);
+		cursor: pointer;
+	}
+
+	.waypoint-remove:hover {
+		color: var(--error);
+	}
+
+	.btn-sm {
+		padding: 0.375rem 0.625rem;
+		font-size: 0.75rem;
+	}
+
+	.save-btn {
+		margin-top: 0.75rem;
+		width: 100%;
 	}
 
 	@media (max-width: 640px) {

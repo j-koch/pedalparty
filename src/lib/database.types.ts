@@ -6,14 +6,14 @@ import type { LineString } from 'geojson';
 export type RouteType = 'loop' | 'out_and_back' | 'no_preference';
 export type RideStatus = 'collecting' | 'generated';
 
-export type Vibe =
-	| 'coffee_shop'
-	| 'scenic_views'
-	| 'low_traffic'
-	| 'gravel_ok'
-	| 'waterfront'
-	| 'minimize_hills'
-	| 'maximize_hills';
+// POI selected by a participant or organizer
+export interface SelectedPOI {
+	id: string; // Unique ID (from Photon or generated)
+	name: string;
+	category: string;
+	lat: number;
+	lng: number;
+}
 
 export interface Ride {
 	id: string;
@@ -23,6 +23,8 @@ export interface Ride {
 	pin: string;
 	created_at: string;
 	status: RideStatus;
+	categories: string[]; // POI categories defined by organizer
+	selected_waypoints: SelectedPOI[] | null; // Organizer's chosen waypoints
 	generated_routes: GeneratedRoute[] | null;
 }
 
@@ -37,7 +39,7 @@ export interface Preference {
 	start_location: { lat: number; lng: number };
 	distance_preference_km: number;
 	route_type: RouteType;
-	vibes: Vibe[];
+	selected_pois: SelectedPOI[]; // POIs selected by this participant
 	time_availability: TimeAvailability | null;
 	submitted_at: string;
 	visitor_token: string;
@@ -49,15 +51,7 @@ export interface GeneratedRoute {
 	distance_km: number;
 	elevation_gain_m: number | null;
 	geometry: LineString;
-	matched_vibes: Vibe[];
-	pois: POI[];
-}
-
-export interface POI {
-	name: string;
-	type: string;
-	lat: number;
-	lng: number;
+	waypoints: SelectedPOI[]; // Ordered waypoints on this route
 }
 
 // Supabase Database type for type-safe queries
@@ -66,7 +60,11 @@ export interface Database {
 		Tables: {
 			rides: {
 				Row: Ride;
-				Insert: Omit<Ride, 'created_at'> & { created_at?: string };
+				Insert: Omit<Ride, 'created_at' | 'selected_waypoints' | 'generated_routes'> & {
+					created_at?: string;
+					selected_waypoints?: SelectedPOI[] | null;
+					generated_routes?: GeneratedRoute[] | null;
+				};
 				Update: Partial<Ride>;
 			};
 			preferences: {

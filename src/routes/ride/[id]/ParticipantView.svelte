@@ -1,13 +1,24 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
-	import type { Vibe, RouteType } from '$lib/database.types';
+	import type { RouteType, SelectedPOI } from '$lib/database.types';
+
+	interface POISearchResult {
+		id: string;
+		name: string;
+		address: string;
+		lat: number;
+		lng: number;
+		type: string;
+		distance_km?: number;
+	}
 
 	interface Props {
 		ride: {
 			id: string;
 			name: string;
 			date: string | null;
+			categories: string[];
 		};
 	}
 
@@ -17,9 +28,14 @@
 	let startLocation = $state<{ lat: number; lng: number } | null>(null);
 	let distanceKm = $state(30);
 	let routeType = $state<RouteType>('no_preference');
-	let selectedVibes = $state<Vibe[]>([]);
+	let selectedPois = $state<SelectedPOI[]>([]);
 	let earliestStart = $state('08:00');
 	let latestEnd = $state('17:00');
+
+	// POI search state per category
+	let searchQueries = $state<Record<string, string>>({});
+	let searchResults = $state<Record<string, POISearchResult[]>>({});
+	let searchingCategory = $state<string | null>(null);
 
 	let isSubmitting = $state(false);
 	let isSubmitted = $state(false);
@@ -35,17 +51,8 @@
 	let mapReady = $state(false);
 	let map: L.Map | null = null;
 	let marker: L.Marker | null = null;
+	let poiMarkers: Record<string, L.Marker> = {};
 	let L: typeof import('leaflet') | null = null;
-
-	const vibeOptions: { value: Vibe; label: string }[] = [
-		{ value: 'coffee_shop', label: 'Coffee Stop' },
-		{ value: 'scenic_views', label: 'Scenic Views' },
-		{ value: 'low_traffic', label: 'Low Traffic' },
-		{ value: 'gravel_ok', label: 'Gravel OK' },
-		{ value: 'waterfront', label: 'Waterfront' },
-		{ value: 'minimize_hills', label: 'Flat Route' },
-		{ value: 'maximize_hills', label: 'Hilly Route' }
-	];
 
 	const routeTypes: { value: RouteType; label: string }[] = [
 		{ value: 'loop', label: 'Loop' },
@@ -111,12 +118,86 @@
 		}
 	}
 
-	function toggleVibe(vibe: Vibe) {
-		if (selectedVibes.includes(vibe)) {
-			selectedVibes = selectedVibes.filter((v) => v !== vibe);
-		} else {
-			selectedVibes = [...selectedVibes, vibe];
+	async function searchPOI(category: string) {
+		const query = searchQueries[category]?.trim();
+		if (!query || !startLocation) return;
+
+		searchingCategory = category;
+		searchResults[category] = [];
+
+		try {
+			const params = new URLSearchParams({
+				q: query,
+				lat: String(startLocation.lat),
+				lng: String(startLocation.lng),
+				limit: '5'
+			});
+			const response = await fetch(`/api/pois/search?${params}`);
+			const data = await response.json();
+
+			if (data.results) {
+				searchResults[category] = data.results;
+			}
+		} catch (err) {
+			console.error('POI search error:', err);
+		} finally {
+			searchingCategory = null;
 		}
+	}
+
+	function selectPOI(category: string, result: POISearchResult) {
+		// Remove any existing POI for this category
+		selectedPois = selectedPois.filter((p) => p.category !== category);
+
+		// Add the new selection
+		const poi: SelectedPOI = {
+			id: result.id,
+			name: result.name,
+			category,
+			lat: result.lat,
+			lng: result.lng
+		};
+		selectedPois = [...selectedPois, poi];
+
+		// Clear search results and query
+		searchResults[category] = [];
+		searchQueries[category] = '';
+
+		// Add marker to map
+		addPOIMarker(poi);
+	}
+
+	function removePOI(category: string) {
+		const poi = selectedPois.find((p) => p.category === category);
+		if (poi && poiMarkers[poi.id] && map) {
+			map.removeLayer(poiMarkers[poi.id]);
+			delete poiMarkers[poi.id];
+		}
+		selectedPois = selectedPois.filter((p) => p.category !== category);
+	}
+
+	function addPOIMarker(poi: SelectedPOI) {
+		if (!map || !L) return;
+
+		// Remove existing marker for this POI if any
+		if (poiMarkers[poi.id]) {
+			map.removeLayer(poiMarkers[poi.id]);
+		}
+
+		const icon = L.divIcon({
+			className: 'poi-marker',
+			html: `<div class="poi-dot"></div>`,
+			iconSize: [16, 16],
+			iconAnchor: [8, 8]
+		});
+
+		const poiMarker = L.marker([poi.lat, poi.lng], { icon }).addTo(map);
+		poiMarker.bindTooltip(poi.name, { permanent: false, direction: 'top' });
+		poiMarkers[poi.id] = poiMarker;
+	}
+
+	function getSelectedPOI(category: string): SelectedPOI | undefined {
+		return selectedPois.find((p) => p.category === category);
 	}
 
 	async function handleSubmit() {
@@ -137,7 +218,7 @@
 					start_location: startLocation,
 					distance_preference_km: distanceKm,
 					route_type: routeType,
-					vibes: selectedVibes,
+					selected_pois: selectedPois,
 					time_availability: {
 						earliest_start: earliestStart,
 						latest_end: latestEnd
@@ -275,21 +356,66 @@
 				</div>
 			</div>
 
-			<!-- Vibes -->
-			<div class="section">
-				<div class="label">Features</div>
-				<div class="chips">
-					{#each vibeOptions as vibe}
-						<button
-							class="chip"
-							class:chip-active={selectedVibes.includes(vibe.value)}
-							onclick={() => toggleVibe(vibe.value)}
-						>
-							{vibe.label}
-						</button>
+			<!-- POI Selection by Category -->
+			{#if ride.categories && ride.categories.length > 0}
+				<div class="section">
+					<div class="label">Stops Along the Route</div>
+					<p class="section-hint">Search and select places you'd like to visit</p>
+
+					{#each ride.categories as category}
+						{@const selected = getSelectedPOI(category)}
+						<div class="poi-category">
+							<div class="category-label">{category}</div>
+
+							{#if selected}
+								<div class="selected-poi">
+									<span class="poi-name">{selected.name}</span>
+									<button class="poi-remove" onclick={() => removePOI(category)}>
+										<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+											<path d="M18 6L6 18M6 6l12 12" />
+										</svg>
+									</button>
+								</div>
+							{:else}
+								<div class="poi-search">
+									<input
+										type="text"
+										class="input poi-input"
+										placeholder="Search for {category.toLowerCase()}..."
+										bind:value={searchQueries[category]}
+										onkeydown={(e) => e.key === 'Enter' && searchPOI(category)}
+										disabled={!startLocation}
+									/>
+									<button
+										class="btn btn-secondary btn-sm"
+										onclick={() => searchPOI(category)}
+										disabled={!startLocation || searchingCategory === category}
+									>
+										{searchingCategory === category ? '...' : 'Search'}
+									</button>
+								</div>
+
+								{#if !startLocation}
+									<div class="poi-hint">Set your start location first</div>
+								{/if}
+
+								{#if searchResults[category]?.length > 0}
+									<div class="search-results">
+										{#each searchResults[category] as result}
+											<button class="search-result" onclick={() => selectPOI(category, result)}>
+												<span class="result-name">{result.name}</span>
+												{#if result.distance_km !== undefined}
+													<span class="result-distance">{result.distance_km} km</span>
+												{/if}
+											</button>
+										{/each}
+									</div>
+								{/if}
+							{/if}
+						</div>
 					{/each}
 				</div>
-			</div>
+			{/if}
 
 			<!-- Time Availability -->
 			<div class="section">
@@ -541,6 +667,140 @@
 		display: flex;
 		flex-wrap: wrap;
 		gap: 0.375rem;
+	}
+
+	/* POI Selection */
+	.section-hint {
+		font-size: 0.6875rem;
+		color: var(--text-muted);
+		margin-bottom: 0.75rem;
+	}
+
+	.poi-category {
+		margin-bottom: 0.75rem;
+		padding-bottom: 0.75rem;
+		border-bottom: 1px solid var(--border);
+	}
+
+	.poi-category:last-child {
+		margin-bottom: 0;
+		padding-bottom: 0;
+		border-bottom: none;
+	}
+
+	.category-label {
+		font-size: 0.6875rem;
+		font-weight: 500;
+		color: var(--text-secondary);
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		margin-bottom: 0.375rem;
+	}
+
+	.poi-search {
+		display: flex;
+		gap: 0.375rem;
+	}
+
+	.poi-input {
+		flex: 1;
+		font-size: 0.8125rem;
+	}
+
+	.btn-sm {
+		padding: 0.375rem 0.625rem;
+		font-size: 0.75rem;
+	}
+
+	.poi-hint {
+		font-size: 0.6875rem;
+		color: var(--text-muted);
+		margin-top: 0.25rem;
+	}
+
+	.search-results {
+		margin-top: 0.375rem;
+		background: var(--surface-secondary);
+		border: 1px solid var(--border);
+		border-radius: var(--radius-sm);
+		overflow: hidden;
+	}
+
+	.search-result {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		width: 100%;
+		padding: 0.5rem 0.625rem;
+		background: transparent;
+		border: none;
+		border-bottom: 1px solid var(--border);
+		cursor: pointer;
+		text-align: left;
+		transition: background 0.15s ease;
+	}
+
+	.search-result:last-child {
+		border-bottom: none;
+	}
+
+	.search-result:hover {
+		background: var(--gray-100);
+	}
+
+	.result-name {
+		font-size: 0.8125rem;
+		color: var(--text-primary);
+	}
+
+	.result-distance {
+		font-family: 'JetBrains Mono', monospace;
+		font-size: 0.6875rem;
+		color: var(--text-muted);
+	}
+
+	.selected-poi {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 0.5rem 0.625rem;
+		background: rgba(74, 157, 107, 0.1);
+		border: 1px solid var(--success);
+		border-radius: var(--radius-sm);
+	}
+
+	.poi-name {
+		font-size: 0.8125rem;
+		color: var(--text-primary);
+	}
+
+	.poi-remove {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		padding: 0.125rem;
+		background: transparent;
+		border: none;
+		color: var(--text-muted);
+		cursor: pointer;
+	}
+
+	.poi-remove:hover {
+		color: var(--error);
+	}
+
+	:global(.poi-marker) {
+		background: transparent !important;
+		border: none !important;
+	}
+
+	:global(.poi-dot) {
+		width: 16px;
+		height: 16px;
+		background: var(--success);
+		border: 2px solid white;
+		border-radius: 50%;
+		box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
 	}
 
 	/* Time Availability */

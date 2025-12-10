@@ -13,16 +13,16 @@
 		color?: string;
 	}
 
-	interface POI {
+	interface Waypoint {
 		name: string;
-		type: string;
+		category: string;
 		lat: number;
 		lng: number;
 	}
 
 	interface Props {
 		routes?: Route[];
-		pois?: POI[];
+		waypoints?: Waypoint[];
 		selectedRouteId?: string | null;
 		center?: { lat: number; lng: number };
 		zoom?: number;
@@ -31,7 +31,7 @@
 
 	let {
 		routes = [],
-		pois = [],
+		waypoints = [],
 		selectedRouteId = null,
 		center = { lat: 39.8283, lng: -98.5795 },
 		zoom = 4,
@@ -41,16 +41,10 @@
 	let mapContainer: HTMLDivElement;
 	let map: LeafletMap | null = null;
 	let routeLines: Polyline[] = [];
-	let poiMarkers: Marker[] = [];
+	let waypointMarkers: Marker[] = [];
 	let L: typeof import('leaflet') | null = null;
 
 	const routeColors = ['#d4a574', '#5c8dc4', '#4a9d6b'];
-
-	const poiIcons: Record<string, string> = {
-		cafe: '☕',
-		viewpoint: '👁',
-		water: '💧'
-	};
 
 	onMount(async () => {
 		L = await import('leaflet');
@@ -119,26 +113,24 @@
 		if (!map || !L) return;
 
 		// Clear existing markers
-		poiMarkers.forEach((marker) => marker.remove());
-		poiMarkers = [];
+		waypointMarkers.forEach((marker) => marker.remove());
+		waypointMarkers = [];
 
-		if (pois.length === 0) return;
+		if (waypoints.length === 0) return;
 
-		pois.forEach((poi) => {
-			const emoji = poiIcons[poi.type] || '📍';
-
+		waypoints.forEach((wp, index) => {
 			const icon = L.divIcon({
-				className: 'poi-marker',
-				html: `<div class="poi-marker-inner" title="${poi.name}">${emoji}</div>`,
+				className: 'waypoint-marker',
+				html: `<div class="waypoint-marker-inner" title="${wp.name}">${index + 1}</div>`,
 				iconSize: [28, 28],
 				iconAnchor: [14, 14]
 			});
 
-			const marker = L.marker([poi.lat, poi.lng], { icon })
-				.bindPopup(`<strong>${poi.name}</strong><br><span style="text-transform: capitalize">${poi.type}</span>`)
+			const marker = L.marker([wp.lat, wp.lng], { icon })
+				.bindPopup(`<strong>${wp.name}</strong><br><span class="waypoint-category">${wp.category}</span>`)
 				.addTo(map!);
 
-			poiMarkers.push(marker);
+			waypointMarkers.push(marker);
 		});
 	}
 
@@ -152,7 +144,7 @@
 
 	$effect(() => {
 		if (map && L) {
-			const _ = pois;
+			const _ = waypoints;
 			updateMarkers();
 		}
 	});
@@ -199,30 +191,37 @@
 		pointer-events: auto;
 	}
 
-	/* POI Markers */
-	:global(.poi-marker) {
+	/* Waypoint Markers */
+	:global(.waypoint-marker) {
 		background: transparent !important;
 		border: none !important;
 	}
 
-	:global(.poi-marker-inner) {
+	:global(.waypoint-marker-inner) {
 		width: 28px;
 		height: 28px;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		background: white;
-		border: 2px solid var(--gray-300);
+		background: var(--success, #4a9d6b);
+		border: 3px solid white;
 		border-radius: 50%;
-		font-size: 14px;
-		box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+		font-size: 12px;
+		font-weight: 600;
+		color: white;
+		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
 		cursor: pointer;
 		transition: transform 0.15s ease, box-shadow 0.15s ease;
 	}
 
-	:global(.poi-marker-inner:hover) {
+	:global(.waypoint-marker-inner:hover) {
 		transform: scale(1.15);
-		box-shadow: 0 3px 10px rgba(0, 0, 0, 0.2);
+		box-shadow: 0 3px 10px rgba(0, 0, 0, 0.3);
+	}
+
+	:global(.waypoint-category) {
+		text-transform: capitalize;
+		color: #666;
 	}
 
 	:global(.leaflet-popup-content-wrapper) {

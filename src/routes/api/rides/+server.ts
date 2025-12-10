@@ -3,14 +3,22 @@ import type { RequestHandler } from './$types';
 import { supabase } from '$lib/supabase';
 import { generateRideId, generateOrganizerToken, generatePin } from '$lib/utils';
 
+// Default POI categories
+const DEFAULT_CATEGORIES = ['Coffee', 'Food', 'Viewpoints', 'Breweries'];
+
 export const POST: RequestHandler = async ({ request }) => {
 	try {
 		const body = await request.json();
-		const { name, date } = body;
+		const { name, date, categories } = body;
 
 		if (!name || typeof name !== 'string' || name.trim().length === 0) {
 			return json({ error: 'Ride name is required' }, { status: 400 });
 		}
+
+		// Use provided categories or defaults
+		const rideCategories = Array.isArray(categories) && categories.length > 0
+			? categories.filter((c: unknown) => typeof c === 'string' && c.trim().length > 0)
+			: DEFAULT_CATEGORIES;
 
 		const rideId = generateRideId();
 		const organizerToken = generateOrganizerToken();
@@ -24,6 +32,7 @@ export const POST: RequestHandler = async ({ request }) => {
 				date: date || null,
 				organizer_token: organizerToken,
 				pin,
+				categories: rideCategories,
 				status: 'collecting',
 				generated_routes: null
 			})

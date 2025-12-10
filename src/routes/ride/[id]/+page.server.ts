@@ -33,12 +33,29 @@ export const load: PageServerLoad = async ({ params, url }) => {
 			const distances = preferences.map((p) => p.distance_preference_km);
 			const avgDistance = Math.round(distances.reduce((a, b) => a + b, 0) / distances.length);
 
-			// Count vibes
-			const vibeCounts: Record<string, number> = {};
+			// Aggregate POI selections by category
+			const poiByCategory: Record<string, { poi: { id: string; name: string; lat: number; lng: number }; count: number }[]> = {};
 			for (const pref of preferences) {
-				for (const vibe of pref.vibes) {
-					vibeCounts[vibe] = (vibeCounts[vibe] || 0) + 1;
+				const selectedPois = pref.selected_pois || [];
+				for (const poi of selectedPois) {
+					if (!poiByCategory[poi.category]) {
+						poiByCategory[poi.category] = [];
+					}
+					// Find if this POI already exists
+					const existing = poiByCategory[poi.category].find((p) => p.poi.id === poi.id);
+					if (existing) {
+						existing.count++;
+					} else {
+						poiByCategory[poi.category].push({
+							poi: { id: poi.id, name: poi.name, lat: poi.lat, lng: poi.lng },
+							count: 1
+						});
+					}
 				}
+			}
+			// Sort by count descending
+			for (const category of Object.keys(poiByCategory)) {
+				poiByCategory[category].sort((a, b) => b.count - a.count);
 			}
 
 			// Count route types
@@ -50,7 +67,7 @@ export const load: PageServerLoad = async ({ params, url }) => {
 			preferencesSummary = {
 				count: preferences.length,
 				avgDistance,
-				vibeCounts,
+				poiByCategory,
 				routeTypeCounts
 			};
 		}
@@ -62,6 +79,7 @@ export const load: PageServerLoad = async ({ params, url }) => {
 			name: ride.name,
 			date: ride.date,
 			status: ride.status,
+			categories: ride.categories || [],
 			generated_routes: ride.generated_routes
 		},
 		isOrganizer,

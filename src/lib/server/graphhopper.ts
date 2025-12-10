@@ -123,3 +123,75 @@ export async function generateRouteVariations(
 
 	return routes;
 }
+
+/**
+ * Calculate distance between two points using Haversine formula
+ */
+function haversineDistance(p1: RoutePoint, p2: RoutePoint): number {
+	const R = 6371; // Earth's radius in km
+	const toRad = (deg: number) => (deg * Math.PI) / 180;
+
+	const dLat = toRad(p2.lat - p1.lat);
+	const dLng = toRad(p2.lng - p1.lng);
+
+	const a =
+		Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+		Math.cos(toRad(p1.lat)) * Math.cos(toRad(p2.lat)) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+
+	const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+	return R * c;
+}
+
+/**
+ * Order waypoints using nearest-neighbor TSP approximation
+ * Returns waypoints in an order that minimizes total travel distance
+ */
+export function orderWaypointsTSP(start: RoutePoint, waypoints: RoutePoint[]): RoutePoint[] {
+	if (waypoints.length <= 1) {
+		return waypoints;
+	}
+
+	const ordered: RoutePoint[] = [];
+	const remaining = [...waypoints];
+	let current = start;
+
+	while (remaining.length > 0) {
+		// Find nearest unvisited waypoint
+		let nearestIdx = 0;
+		let nearestDist = haversineDistance(current, remaining[0]);
+
+		for (let i = 1; i < remaining.length; i++) {
+			const dist = haversineDistance(current, remaining[i]);
+			if (dist < nearestDist) {
+				nearestDist = dist;
+				nearestIdx = i;
+			}
+		}
+
+		// Add nearest to ordered list and remove from remaining
+		const nearest = remaining[nearestIdx];
+		ordered.push(nearest);
+		remaining.splice(nearestIdx, 1);
+		current = nearest;
+	}
+
+	return ordered;
+}
+
+/**
+ * Generate a loop route through waypoints
+ * Route: start -> waypoint1 -> waypoint2 -> ... -> start
+ */
+export async function getRouteWithWaypoints(
+	start: RoutePoint,
+	waypoints: RoutePoint[]
+): Promise<GraphHopperRoute | null> {
+	// Order waypoints for efficient routing
+	const orderedWaypoints = orderWaypointsTSP(start, waypoints);
+
+	// Build route: start -> waypoints -> start (loop back)
+	const points = [start, ...orderedWaypoints, start];
+
+	return getRoute(points);
+}

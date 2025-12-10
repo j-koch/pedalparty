@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import type { PageData } from './$types';
-	import type { GeneratedRoute } from '$lib/database.types';
+	import type { GeneratedRoute, SelectedPOI } from '$lib/database.types';
 
 	let { data }: { data: PageData } = $props();
 
@@ -11,16 +11,6 @@
 
 	const routes = data.routes as GeneratedRoute[];
 	const routeColors = ['#d4a574', '#5c8dc4', '#4a9d6b'];
-
-	const vibeLabels: Record<string, string> = {
-		coffee_shop: 'Coffee',
-		scenic_views: 'Scenic',
-		low_traffic: 'Low Traffic',
-		gravel_ok: 'Gravel',
-		waterfront: 'Water',
-		minimize_hills: 'Flat',
-		maximize_hills: 'Hilly'
-	};
 
 	onMount(async () => {
 		const module = await import('$lib/components/MapLayout.svelte');
@@ -36,24 +26,19 @@
 		}))
 	);
 
-	// Collect all unique POIs from all routes
-	const allPois = $derived.by(() => {
-		const seen = new Set<string>();
-		const pois: { name: string; type: string; lat: number; lng: number }[] = [];
+	// Collect all waypoints from routes for map display
+	const allWaypoints = $derived.by(() => {
+		const waypoints: { name: string; category: string; lat: number; lng: number }[] = [];
 
 		for (const route of routes) {
-			if (route.pois) {
-				for (const poi of route.pois) {
-					const key = `${poi.lat},${poi.lng}`;
-					if (!seen.has(key)) {
-						seen.add(key);
-						pois.push(poi);
-					}
+			if (route.waypoints) {
+				for (const wp of route.waypoints) {
+					waypoints.push(wp);
 				}
 			}
 		}
 
-		return pois;
+		return waypoints;
 	});
 
 	function selectRoute(id: string) {
@@ -65,6 +50,10 @@
 		copied = true;
 		setTimeout(() => (copied = false), 2000);
 	}
+
+	function getRouteWaypoints(route: GeneratedRoute): SelectedPOI[] {
+		return route.waypoints || [];
+	}
 </script>
 
 <svelte:head>
@@ -72,7 +61,7 @@
 </svelte:head>
 
 {#if MapLayout}
-	<MapLayout routes={mapRoutes} pois={allPois} {selectedRouteId}>
+	<MapLayout routes={mapRoutes} waypoints={allWaypoints} {selectedRouteId}>
 		<aside class="sidebar">
 			<div class="sidebar-header">
 				<a href="/" class="logo">PEDALPARTY</a>
@@ -95,6 +84,7 @@
 					{#each routes as route, index}
 						{@const color = routeColors[index % routeColors.length]}
 						{@const isSelected = selectedRouteId === route.id}
+						{@const waypoints = getRouteWaypoints(route)}
 						<button
 							class="route-card"
 							class:selected={isSelected}
@@ -114,23 +104,20 @@
 								</div>
 							</div>
 
-							{#if route.matched_vibes && route.matched_vibes.length > 0}
-								<div class="route-vibes">
-									{#each route.matched_vibes as vibe}
-										<span class="vibe-tag">{vibeLabels[vibe] || vibe}</span>
-									{/each}
-								</div>
-							{/if}
-
-							{#if isSelected && route.pois && route.pois.length > 0}
-								<div class="route-pois">
-									<div class="pois-label">Points of Interest</div>
-									{#each route.pois.slice(0, 3) as poi}
-										<div class="poi-item">{poi.name}</div>
-									{/each}
-									{#if route.pois.length > 3}
-										<div class="poi-more">+{route.pois.length - 3} more</div>
-									{/if}
+							{#if waypoints.length > 0}
+								<div class="route-waypoints">
+									<div class="waypoints-label">Stops</div>
+									<div class="waypoints-list">
+										{#each waypoints as wp, i}
+											<div class="waypoint-item">
+												<span class="waypoint-num">{i + 1}</span>
+												<div class="waypoint-info">
+													<span class="waypoint-name">{wp.name}</span>
+													<span class="waypoint-category">{wp.category}</span>
+												</div>
+											</div>
+										{/each}
+									</div>
 								</div>
 							{/if}
 						</button>
@@ -258,49 +245,62 @@
 		color: var(--text-muted);
 	}
 
-	.route-vibes {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0.25rem;
-		margin-top: 0.625rem;
-		padding-left: calc(4px + 0.75rem);
-	}
-
-	.vibe-tag {
-		padding: 0.125rem 0.375rem;
-		font-size: 0.625rem;
-		text-transform: uppercase;
-		letter-spacing: 0.05em;
-		background: var(--gray-100);
-		border-radius: var(--radius-sm);
-		color: var(--text-secondary);
-	}
-
-	.route-pois {
+	.route-waypoints {
 		margin-top: 0.75rem;
 		padding-top: 0.75rem;
 		padding-left: calc(4px + 0.75rem);
 		border-top: 1px solid var(--border-subtle);
 	}
 
-	.pois-label {
+	.waypoints-label {
 		font-size: 0.625rem;
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
 		color: var(--text-muted);
-		margin-bottom: 0.375rem;
+		margin-bottom: 0.5rem;
 	}
 
-	.poi-item {
-		font-size: 0.75rem;
-		color: var(--text-secondary);
-		padding: 0.125rem 0;
+	.waypoints-list {
+		display: flex;
+		flex-direction: column;
+		gap: 0.375rem;
 	}
 
-	.poi-more {
+	.waypoint-item {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
+	.waypoint-num {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 18px;
+		height: 18px;
+		font-family: 'JetBrains Mono', monospace;
+		font-size: 0.625rem;
+		font-weight: 600;
+		color: white;
+		background: var(--success);
+		border-radius: 50%;
+		flex-shrink: 0;
+	}
+
+	.waypoint-info {
+		flex: 1;
+		min-width: 0;
+	}
+
+	.waypoint-name {
+		font-size: 0.8125rem;
+		color: var(--text-primary);
+		display: block;
+	}
+
+	.waypoint-category {
 		font-size: 0.6875rem;
 		color: var(--text-muted);
-		margin-top: 0.25rem;
 	}
 
 	.sidebar-footer {
