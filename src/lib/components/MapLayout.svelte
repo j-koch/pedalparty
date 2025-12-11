@@ -20,21 +20,33 @@
 		lng: number;
 	}
 
+	interface CandidatePOI {
+		id: string;
+		name: string;
+		lat: number;
+		lng: number;
+		distance_km?: number;
+	}
+
 	interface Props {
 		routes?: Route[];
 		waypoints?: Waypoint[];
+		candidatePois?: CandidatePOI[];
 		selectedRouteId?: string | null;
 		center?: { lat: number; lng: number };
 		zoom?: number;
+		onCandidateSelect?: (candidate: CandidatePOI) => void;
 		children?: Snippet;
 	}
 
 	let {
 		routes = [],
 		waypoints = [],
+		candidatePois = [],
 		selectedRouteId = null,
 		center = { lat: 39.8283, lng: -98.5795 },
 		zoom = 4,
+		onCandidateSelect,
 		children
 	}: Props = $props();
 
@@ -42,6 +54,7 @@
 	let map: LeafletMap | null = null;
 	let routeLines: Polyline[] = [];
 	let waypointMarkers: Marker[] = [];
+	let candidateMarkers: Marker[] = [];
 	let L: typeof import('leaflet') | null = null;
 
 	const routeColors = ['#d4a574', '#5c8dc4', '#4a9d6b'];
@@ -134,6 +147,42 @@
 		});
 	}
 
+	function updateCandidateMarkers() {
+		if (!map || !L) return;
+
+		// Clear existing candidate markers
+		candidateMarkers.forEach((marker) => marker.remove());
+		candidateMarkers = [];
+
+		if (candidatePois.length === 0) return;
+
+		candidatePois.forEach((poi, index) => {
+			const icon = L.divIcon({
+				className: 'candidate-marker',
+				html: `<div class="candidate-marker-inner">${index + 1}</div>`,
+				iconSize: [32, 32],
+				iconAnchor: [16, 16]
+			});
+
+			const marker = L.marker([poi.lat, poi.lng], { icon })
+				.bindTooltip(poi.name, { permanent: false, direction: 'top' })
+				.addTo(map!);
+
+			// If callback provided, make markers clickable
+			if (onCandidateSelect) {
+				marker.on('click', () => onCandidateSelect(poi));
+			}
+
+			candidateMarkers.push(marker);
+		});
+
+		// Fit bounds to show all candidates
+		if (candidatePois.length > 0) {
+			const bounds = L.latLngBounds(candidatePois.map((p) => [p.lat, p.lng] as [number, number]));
+			map.fitBounds(bounds, { padding: [100, 100], maxZoom: 14 });
+		}
+	}
+
 	$effect(() => {
 		if (map && L) {
 			const _ = routes;
@@ -146,6 +195,14 @@
 		if (map && L) {
 			const _ = waypoints;
 			updateMarkers();
+		}
+	});
+
+	$effect(() => {
+		// Access candidatePois array to track changes
+		const _ = [...candidatePois];
+		if (map && L) {
+			updateCandidateMarkers();
 		}
 	});
 
@@ -233,5 +290,33 @@
 		margin: 10px 12px;
 		font-size: 13px;
 		line-height: 1.4;
+	}
+
+	/* Candidate POI Markers */
+	:global(.candidate-marker) {
+		background: transparent !important;
+		border: none !important;
+	}
+
+	:global(.candidate-marker-inner) {
+		width: 32px;
+		height: 32px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background: var(--accent, #4a90a4);
+		border: 3px solid white;
+		border-radius: 50%;
+		font-size: 14px;
+		font-weight: 600;
+		color: white;
+		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+		cursor: pointer;
+		transition: transform 0.15s ease, box-shadow 0.15s ease;
+	}
+
+	:global(.candidate-marker-inner:hover) {
+		transform: scale(1.15);
+		box-shadow: 0 3px 12px rgba(0, 0, 0, 0.4);
 	}
 </style>

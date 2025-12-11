@@ -8,6 +8,27 @@
 	let OrganizerView: typeof import('./OrganizerView.svelte').default | null = $state(null);
 	let ParticipantView: typeof import('./ParticipantView.svelte').default | null = $state(null);
 
+	// State for POI candidate markers on main map
+	interface CandidatePOI {
+		id: string;
+		name: string;
+		lat: number;
+		lng: number;
+		distance_km?: number;
+	}
+	let candidatePois = $state<CandidatePOI[]>([]);
+	let activeCategory = $state<string | null>(null);
+	let participantViewRef: { handleMapCandidateSelect: (candidate: CandidatePOI) => void } | null = null;
+
+	function handleCandidatesChange(candidates: CandidatePOI[], category: string | null) {
+		candidatePois = candidates;
+		activeCategory = category;
+	}
+
+	function handleCandidateSelect(candidate: CandidatePOI) {
+		participantViewRef?.handleMapCandidateSelect(candidate);
+	}
+
 	onMount(async () => {
 		const [mapModule, orgModule, partModule] = await Promise.all([
 			import('$lib/components/MapLayout.svelte'),
@@ -25,7 +46,10 @@
 </svelte:head>
 
 {#if MapLayout && OrganizerView && ParticipantView}
-	<MapLayout>
+	<MapLayout
+		candidatePois={!data.isOrganizer ? candidatePois : []}
+		onCandidateSelect={handleCandidateSelect}
+	>
 		{#if data.isOrganizer}
 			<OrganizerView
 				ride={data.ride}
@@ -33,7 +57,11 @@
 				orgToken={data.orgToken}
 			/>
 		{:else}
-			<ParticipantView ride={data.ride} />
+			<ParticipantView
+				bind:this={participantViewRef}
+				ride={data.ride}
+				onCandidatesChange={handleCandidatesChange}
+			/>
 		{/if}
 	</MapLayout>
 {:else}

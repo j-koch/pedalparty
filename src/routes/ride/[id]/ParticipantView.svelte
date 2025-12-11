@@ -13,6 +13,14 @@
 		distance_km?: number;
 	}
 
+	interface CandidatePOI {
+		id: string;
+		name: string;
+		lat: number;
+		lng: number;
+		distance_km?: number;
+	}
+
 	interface Props {
 		ride: {
 			id: string;
@@ -20,9 +28,11 @@
 			date: string | null;
 			categories: string[];
 		};
+		onCandidatesChange?: (candidates: CandidatePOI[], category: string | null) => void;
+		onCandidateSelected?: (candidate: CandidatePOI) => void;
 	}
 
-	let { ride }: Props = $props();
+	let { ride, onCandidatesChange, onCandidateSelected }: Props = $props();
 
 	// Form state
 	let startLocation = $state<{ lat: number; lng: number } | null>(null);
@@ -36,6 +46,7 @@
 	let searchQueries = $state<Record<string, string>>({});
 	let searchResults = $state<Record<string, POISearchResult[]>>({});
 	let searchingCategory = $state<string | null>(null);
+	let activeSearchCategory = $state<string | null>(null);
 
 	let isSubmitting = $state(false);
 	let isSubmitted = $state(false);
@@ -53,6 +64,9 @@
 	let marker: L.Marker | null = null;
 	let poiMarkers: Record<string, L.Marker> = {};
 	let L: typeof import('leaflet') | null = null;
+
+	// Mobile sidebar collapse state
+	let sidebarCollapsed = $state(false);
 
 	const routeTypes: { value: RouteType; label: string }[] = [
 		{ value: 'loop', label: 'Loop' },
@@ -124,6 +138,10 @@
 
 		searchingCategory = category;
 		searchResults[category] = [];
+		activeSearchCategory = category;
+
+		// Clear candidates on main map
+		onCandidatesChange?.([], null);
 
 		try {
 			const params = new URLSearchParams({
@@ -137,6 +155,15 @@
 
 			if (data.results) {
 				searchResults[category] = data.results;
+				// Notify parent of candidates for main map display
+				const candidates: CandidatePOI[] = data.results.map((r: POISearchResult) => ({
+					id: r.id,
+					name: r.name,
+					lat: r.lat,
+					lng: r.lng,
+					distance_km: r.distance_km
+				}));
+				onCandidatesChange?.(candidates, category);
 			}
 		} catch (err) {
 			console.error('POI search error:', err);
@@ -159,12 +186,33 @@
 		};
 		selectedPois = [...selectedPois, poi];
 
-		// Clear search results and query
+		// Clear search results, query, and candidates on main map
 		searchResults[category] = [];
 		searchQueries[category] = '';
+		activeSearchCategory = null;
+		onCandidatesChange?.([], null);
 
-		// Add marker to map
+		// Add marker to mini-map
 		addPOIMarker(poi);
+	}
+
+	// Called when a candidate is selected from the main map
+	export function handleMapCandidateSelect(candidate: CandidatePOI) {
+		if (!activeSearchCategory) return;
+
+		const result: POISearchResult = {
+			id: candidate.id,
+			name: candidate.name,
+			address: '',
+			lat: candidate.lat,
+			lng: candidate.lng,
+			type: '',
+			distance_km: candidate.distance_km
+		};
+		selectPOI(activeSearchCategory, result);
+
+		// Expand sidebar back on mobile after selection
+		sidebarCollapsed = false;
 	}
 
 	function removePOI(category: string) {
@@ -275,7 +323,7 @@
 	}
 </script>
 
-<aside class="sidebar">
+<aside class="sidebar" class:collapsed={sidebarCollapsed}>
 	<div class="sidebar-header">
 		<a href="/" class="logo">PEDALPARTY</a>
 		<h1 class="ride-name">{ride.name}</h1>
@@ -401,8 +449,9 @@
 
 								{#if searchResults[category]?.length > 0}
 									<div class="search-results">
-										{#each searchResults[category] as result}
+										{#each searchResults[category] as result, index}
 											<button class="search-result" onclick={() => selectPOI(category, result)}>
+												<span class="result-number">{index + 1}</span>
 												<span class="result-name">{result.name}</span>
 												{#if result.distance_km !== undefined}
 													<span class="result-distance">{result.distance_km} km</span>
@@ -410,6 +459,14 @@
 											</button>
 										{/each}
 									</div>
+									<button class="btn btn-map-view" onclick={() => (sidebarCollapsed = true)}>
+										<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+											<path d="M1 6v16l7-4 8 4 7-4V2l-7 4-8-4-7 4z" />
+											<path d="M8 2v16" />
+											<path d="M16 6v16" />
+										</svg>
+										View on Map
+									</button>
 								{/if}
 							{/if}
 						</div>
@@ -460,6 +517,16 @@
 		</div>
 	{/if}
 </aside>
+
+<!-- Floating expand button when sidebar is collapsed (mobile) -->
+{#if sidebarCollapsed}
+	<button class="expand-sidebar-btn" onclick={() => (sidebarCollapsed = false)}>
+		<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+			<path d="M4 6h16M4 12h16M4 18h16" />
+		</svg>
+		<span>Back to Form</span>
+	</button>
+{/if}
 
 <!-- PIN Recovery Modal -->
 {#if showPinModal}
@@ -728,8 +795,8 @@
 
 	.search-result {
 		display: flex;
-		justify-content: space-between;
 		align-items: center;
+		gap: 0.5rem;
 		width: 100%;
 		padding: 0.5rem 0.625rem;
 		background: transparent;
@@ -748,9 +815,25 @@
 		background: var(--gray-100);
 	}
 
+	.result-number {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 18px;
+		height: 18px;
+		background: var(--accent);
+		color: white;
+		font-size: 0.6875rem;
+		font-weight: 600;
+		border-radius: 50%;
+		flex-shrink: 0;
+	}
+
 	.result-name {
+		flex: 1;
 		font-size: 0.8125rem;
 		color: var(--text-primary);
+		text-align: left;
 	}
 
 	.result-distance {
@@ -975,6 +1058,56 @@
 		border-top: 1px solid var(--border);
 	}
 
+	/* View on Map button */
+	.btn-map-view {
+		display: none;
+		align-items: center;
+		justify-content: center;
+		gap: 0.375rem;
+		width: 100%;
+		margin-top: 0.5rem;
+		padding: 0.5rem 0.75rem;
+		font-size: 0.75rem;
+		font-weight: 500;
+		color: var(--accent);
+		background: rgba(74, 144, 164, 0.1);
+		border: 1px solid var(--accent);
+		border-radius: var(--radius-sm);
+		cursor: pointer;
+		transition: all 0.15s ease;
+	}
+
+	.btn-map-view:hover {
+		background: rgba(74, 144, 164, 0.2);
+	}
+
+	/* Expand sidebar button */
+	.expand-sidebar-btn {
+		display: none;
+		position: fixed;
+		bottom: 1rem;
+		left: 50%;
+		transform: translateX(-50%);
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.75rem 1.25rem;
+		font-size: 0.875rem;
+		font-weight: 500;
+		color: white;
+		background: var(--accent);
+		border: none;
+		border-radius: var(--radius-md);
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+		cursor: pointer;
+		z-index: 100;
+		transition: all 0.15s ease;
+	}
+
+	.expand-sidebar-btn:hover {
+		background: var(--accent-hover, #3d7a8a);
+		box-shadow: 0 6px 16px rgba(0, 0, 0, 0.25);
+	}
+
 	@media (max-width: 640px) {
 		.sidebar {
 			top: auto;
@@ -986,10 +1119,24 @@
 			border-left: none;
 			border-right: none;
 			border-bottom: none;
+			border-radius: var(--radius-md) var(--radius-md) 0 0;
+			transition: transform 0.3s ease;
+		}
+
+		.sidebar.collapsed {
+			transform: translateY(100%);
 		}
 
 		.location-map {
 			height: 120px;
+		}
+
+		.btn-map-view {
+			display: flex;
+		}
+
+		.expand-sidebar-btn {
+			display: flex;
 		}
 	}
 </style>
