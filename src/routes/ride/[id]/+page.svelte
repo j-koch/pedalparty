@@ -16,9 +16,22 @@
 		lng: number;
 		distance_km?: number;
 	}
+	interface SelectedPOI {
+		id: string;
+		name: string;
+		category: string;
+		lat: number;
+		lng: number;
+	}
 	let candidatePois = $state<CandidatePOI[]>([]);
+	let selectedPois = $state<SelectedPOI[]>([]);
 	let activeCategory = $state<string | null>(null);
 	let participantViewRef: { handleMapCandidateSelect: (candidate: CandidatePOI) => void } | null = null;
+	let organizerViewRef: { handleMapCandidateSelect: (candidate: CandidatePOI) => void } | null = null;
+
+	// State for location picking
+	let isPickingLocation = $state(false);
+	let startLocation = $state<{ lat: number; lng: number } | null>(null);
 
 	function handleCandidatesChange(candidates: CandidatePOI[], category: string | null) {
 		candidatePois = candidates;
@@ -26,7 +39,24 @@
 	}
 
 	function handleCandidateSelect(candidate: CandidatePOI) {
-		participantViewRef?.handleMapCandidateSelect(candidate);
+		if (data.isOrganizer) {
+			organizerViewRef?.handleMapCandidateSelect(candidate);
+		} else {
+			participantViewRef?.handleMapCandidateSelect(candidate);
+		}
+	}
+
+	function handleStartLocationPick() {
+		isPickingLocation = true;
+	}
+
+	function handleLocationPicked(location: { lat: number; lng: number }) {
+		startLocation = location;
+		isPickingLocation = false;
+	}
+
+	function handleSelectedPoisChange(pois: SelectedPOI[]) {
+		selectedPois = pois;
 	}
 
 	onMount(async () => {
@@ -47,20 +77,29 @@
 
 {#if MapLayout && OrganizerView && ParticipantView}
 	<MapLayout
-		candidatePois={!data.isOrganizer ? candidatePois : []}
+		{candidatePois}
+		{selectedPois}
 		onCandidateSelect={handleCandidateSelect}
+		{isPickingLocation}
+		{startLocation}
+		onLocationPicked={handleLocationPicked}
 	>
 		{#if data.isOrganizer}
 			<OrganizerView
+				bind:this={organizerViewRef}
 				ride={data.ride}
 				preferencesSummary={data.preferencesSummary}
 				orgToken={data.orgToken}
+				onCandidatesChange={handleCandidatesChange}
+				onSelectedPoisChange={handleSelectedPoisChange}
 			/>
 		{:else}
 			<ParticipantView
 				bind:this={participantViewRef}
 				ride={data.ride}
 				onCandidatesChange={handleCandidatesChange}
+				onStartLocationPick={handleStartLocationPick}
+				startLocationFromMap={startLocation}
 			/>
 		{/if}
 	</MapLayout>

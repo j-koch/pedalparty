@@ -28,14 +28,27 @@
 		distance_km?: number;
 	}
 
+	interface SelectedPOI {
+		id: string;
+		name: string;
+		category: string;
+		lat: number;
+		lng: number;
+	}
+
 	interface Props {
 		routes?: Route[];
 		waypoints?: Waypoint[];
 		candidatePois?: CandidatePOI[];
+		selectedPois?: SelectedPOI[];
 		selectedRouteId?: string | null;
 		center?: { lat: number; lng: number };
 		zoom?: number;
 		onCandidateSelect?: (candidate: CandidatePOI) => void;
+		// Location picking mode
+		isPickingLocation?: boolean;
+		startLocation?: { lat: number; lng: number } | null;
+		onLocationPicked?: (location: { lat: number; lng: number }) => void;
 		children?: Snippet;
 	}
 
@@ -43,10 +56,14 @@
 		routes = [],
 		waypoints = [],
 		candidatePois = [],
+		selectedPois = [],
 		selectedRouteId = null,
 		center = { lat: 39.8283, lng: -98.5795 },
 		zoom = 4,
 		onCandidateSelect,
+		isPickingLocation = false,
+		startLocation = null,
+		onLocationPicked,
 		children
 	}: Props = $props();
 
@@ -55,6 +72,8 @@
 	let routeLines: Polyline[] = [];
 	let waypointMarkers: Marker[] = [];
 	let candidateMarkers: Marker[] = [];
+	let selectedPoiMarkers: Marker[] = [];
+	let startLocationMarker: Marker | null = null;
 	let L: typeof import('leaflet') | null = null;
 
 	const routeColors = ['#d4a574', '#5c8dc4', '#4a9d6b'];
@@ -77,8 +96,28 @@
 			maxZoom: 20
 		}).addTo(map);
 
+		// Handle map clicks for location picking
+		map.on('click', (e) => {
+			if (isPickingLocation && onLocationPicked) {
+				onLocationPicked({ lat: e.latlng.lat, lng: e.latlng.lng });
+			}
+		});
+
+		// Try to get user's location on first load
+		if (navigator.geolocation) {
+			navigator.geolocation.getCurrentPosition(
+				(pos) => {
+					map?.setView([pos.coords.latitude, pos.coords.longitude], 12);
+				},
+				() => {
+					// Geolocation failed, keep default view
+				}
+			);
+		}
+
 		updateRoutes();
 		updateMarkers();
+		updateStartLocationMarker();
 	});
 
 	onDestroy(() => {
@@ -206,6 +245,70 @@
 		}
 	});
 
+	function updateStartLocationMarker() {
+		if (!map || !L) return;
+
+		// Remove existing marker
+		if (startLocationMarker) {
+			map.removeLayer(startLocationMarker);
+			startLocationMarker = null;
+		}
+
+		if (!startLocation) return;
+
+		const icon = L.divIcon({
+			className: 'start-location-marker',
+			html: '<div class="start-location-dot"></div>',
+			iconSize: [24, 24],
+			iconAnchor: [12, 12]
+		});
+
+		startLocationMarker = L.marker([startLocation.lat, startLocation.lng], { icon })
+			.bindTooltip('Start Location', { permanent: false, direction: 'top' })
+			.addTo(map);
+	}
+
+	$effect(() => {
+		// Track startLocation changes
+		const loc = startLocation;
+		if (map && L) {
+			updateStartLocationMarker();
+		}
+	});
+
+	function updateSelectedPoiMarkers() {
+		if (!map || !L) return;
+
+		// Clear existing selected POI markers
+		selectedPoiMarkers.forEach((marker) => marker.remove());
+		selectedPoiMarkers = [];
+
+		if (selectedPois.length === 0) return;
+
+		selectedPois.forEach((poi) => {
+			const icon = L.divIcon({
+				className: 'selected-poi-marker',
+				html: `<div class="selected-poi-dot"></div>`,
+				iconSize: [24, 24],
+				iconAnchor: [12, 12]
+			});
+
+			const marker = L.marker([poi.lat, poi.lng], { icon })
+				.bindTooltip(`${poi.name} (${poi.category})`, { permanent: false, direction: 'top' })
+				.addTo(map!);
+
+			selectedPoiMarkers.push(marker);
+		});
+	}
+
+	$effect(() => {
+		// Track selectedPois changes
+		const _ = [...selectedPois];
+		if (map && L) {
+			updateSelectedPoiMarkers();
+		}
+	});
+
 	export function getMap() {
 		return map;
 	}
@@ -218,6 +321,15 @@
 <div class="map-layout">
 	<div bind:this={mapContainer} class="map-container"></div>
 	<div class="ui-layer">
+		{#if isPickingLocation}
+			<div class="picking-prompt">
+				<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
+					<circle cx="12" cy="10" r="3" />
+				</svg>
+				Tap the map to set your starting point
+			</div>
+		{/if}
 		{#if children}
 			{@render children()}
 		{/if}
@@ -318,5 +430,66 @@
 	:global(.candidate-marker-inner:hover) {
 		transform: scale(1.15);
 		box-shadow: 0 3px 12px rgba(0, 0, 0, 0.4);
+	}
+
+	/* Start Location Marker */
+	:global(.start-location-marker) {
+		background: transparent !important;
+		border: none !important;
+	}
+
+	:global(.start-location-dot) {
+		width: 24px;
+		height: 24px;
+		background: var(--accent, #4a90a4);
+		border: 3px solid white;
+		border-radius: 50%;
+		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+	}
+
+	/* Selected POI Markers (green) */
+	:global(.selected-poi-marker) {
+		background: transparent !important;
+		border: none !important;
+	}
+
+	:global(.selected-poi-dot) {
+		width: 24px;
+		height: 24px;
+		background: var(--success, #4a9d6b);
+		border: 3px solid white;
+		border-radius: 50%;
+		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+		transition: transform 0.15s ease;
+	}
+
+	:global(.selected-poi-dot:hover) {
+		transform: scale(1.1);
+	}
+
+	/* Location Picking Mode Prompt */
+	.picking-prompt {
+		position: absolute;
+		top: 1rem;
+		left: 50%;
+		transform: translateX(-50%);
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.75rem 1.25rem;
+		background: var(--surface-overlay, rgba(255, 255, 255, 0.95));
+		backdrop-filter: blur(8px);
+		border: 1px solid var(--border, #e5e5e5);
+		border-radius: var(--radius-md, 8px);
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+		font-size: 0.875rem;
+		font-weight: 500;
+		color: var(--text-primary, #1a1a1a);
+		z-index: 100;
+		pointer-events: auto;
+	}
+
+	.picking-prompt svg {
+		color: var(--accent, #4a90a4);
 	}
 </style>

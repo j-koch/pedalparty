@@ -8,6 +8,21 @@
 		count: number;
 	}
 
+	interface CandidatePOI {
+		id: string;
+		name: string;
+		lat: number;
+		lng: number;
+	}
+
+	interface SelectedPOIMarker {
+		id: string;
+		name: string;
+		category: string;
+		lat: number;
+		lng: number;
+	}
+
 	interface Props {
 		ride: {
 			id: string;
@@ -24,15 +39,19 @@
 			routeTypeCounts: Record<string, number>;
 		} | null;
 		orgToken: string | null;
+		onCandidatesChange?: (candidates: CandidatePOI[], category: string | null) => void;
+		onSelectedPoisChange?: (pois: SelectedPOIMarker[]) => void;
 	}
 
-	let { ride, preferencesSummary, orgToken }: Props = $props();
+	let { ride, preferencesSummary, orgToken, onCandidatesChange, onSelectedPoisChange }: Props = $props();
 
 	let copied = $state(false);
 	let isGenerating = $state(false);
 	let generateError = $state('');
 	let selectedWaypoints = $state<SelectedPOI[]>([]);
 	let isSavingWaypoints = $state(false);
+	let activeCategory = $state<string | null>(null);
+	let sidebarCollapsed = $state(false);
 
 	const shareUrl = $derived(`${$page.url.origin}/ride/${ride.id}`);
 	const hasRoutes = $derived(ride.status === 'generated' && ride.generated_routes);
@@ -55,6 +74,9 @@
 				lng: poi.lng
 			}
 		];
+
+		// Clear candidates from map
+		hideCategoryFromMap();
 	}
 
 	function deselectWaypoint(category: string) {
@@ -63,6 +85,39 @@
 
 	function getSelectedWaypoint(category: string): SelectedPOI | undefined {
 		return selectedWaypoints.find((w) => w.category === category);
+	}
+
+	function showCategoryOnMap(category: string) {
+		const suggestions = preferencesSummary?.poiByCategory[category];
+		if (!suggestions) return;
+
+		activeCategory = category;
+		const candidates: CandidatePOI[] = suggestions.map((s) => ({
+			id: s.poi.id,
+			name: s.poi.name,
+			lat: s.poi.lat,
+			lng: s.poi.lng
+		}));
+		onCandidatesChange?.(candidates, category);
+	}
+
+	function hideCategoryFromMap() {
+		activeCategory = null;
+		onCandidatesChange?.([], null);
+	}
+
+	// Called when a candidate is selected from the main map
+	export function handleMapCandidateSelect(candidate: CandidatePOI) {
+		if (!activeCategory) return;
+
+		selectWaypoint(activeCategory, {
+			id: candidate.id,
+			name: candidate.name,
+			lat: candidate.lat,
+			lng: candidate.lng
+		});
+		hideCategoryFromMap();
+		sidebarCollapsed = false;
 	}
 
 	async function saveWaypoints() {
@@ -112,9 +167,21 @@
 			isGenerating = false;
 		}
 	}
+
+	// Notify parent when selected waypoints change
+	$effect(() => {
+		const pois = selectedWaypoints.map(w => ({
+			id: w.id,
+			name: w.name,
+			category: w.category,
+			lat: w.lat,
+			lng: w.lng
+		}));
+		onSelectedPoisChange?.(pois);
+	});
 </script>
 
-<aside class="sidebar">
+<aside class="sidebar" class:collapsed={sidebarCollapsed}>
 	<div class="sidebar-header">
 		<a href="/" class="logo">PEDALPARTY</a>
 		<h1 class="ride-name">{ride.name}</h1>
@@ -208,13 +275,25 @@
 							</div>
 						{:else}
 							<div class="poi-suggestions">
-								{#each suggestions as { poi, count }}
+								{#each suggestions as { poi, count }, index}
 									<button class="poi-suggestion" onclick={() => selectWaypoint(category, poi)}>
+										<span class="suggestion-number">{index + 1}</span>
 										<span class="suggestion-name">{poi.name}</span>
 										<span class="suggestion-votes">{count} vote{count !== 1 ? 's' : ''}</span>
 									</button>
 								{/each}
 							</div>
+							<button
+								class="btn btn-map-view"
+								onclick={() => { showCategoryOnMap(category); if (window.innerWidth <= 640) sidebarCollapsed = true; }}
+							>
+								<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+									<path d="M1 6v16l7-4 8 4 7-4V2l-7 4-8-4-7 4z" />
+									<path d="M8 2v16" />
+									<path d="M16 6v16" />
+								</svg>
+								View on Map
+							</button>
 						{/if}
 					</div>
 				{/each}
@@ -254,6 +333,16 @@
 		{/if}
 	</div>
 </aside>
+
+<!-- Floating expand button when sidebar is collapsed (mobile) -->
+{#if sidebarCollapsed && activeCategory}
+	<button class="expand-sidebar-btn" onclick={() => { sidebarCollapsed = false; hideCategoryFromMap(); }}>
+		<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+			<path d="M4 6h16M4 12h16M4 18h16" />
+		</svg>
+		<span>Back to Form</span>
+	</button>
+{/if}
 
 <style>
 	.sidebar {
@@ -441,8 +530,8 @@
 
 	.poi-suggestion {
 		display: flex;
-		justify-content: space-between;
 		align-items: center;
+		gap: 0.5rem;
 		width: 100%;
 		padding: 0.5rem 0.625rem;
 		background: var(--surface-secondary);
@@ -459,8 +548,10 @@
 	}
 
 	.suggestion-name {
+		flex: 1;
 		font-size: 0.8125rem;
 		color: var(--text-primary);
+		text-align: left;
 	}
 
 	.suggestion-votes {
@@ -509,6 +600,70 @@
 		width: 100%;
 	}
 
+	.suggestion-number {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 18px;
+		height: 18px;
+		background: var(--accent);
+		color: white;
+		font-size: 0.6875rem;
+		font-weight: 600;
+		border-radius: 50%;
+		flex-shrink: 0;
+	}
+
+	/* View on Map button */
+	.btn-map-view {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.375rem;
+		width: 100%;
+		margin-top: 0.5rem;
+		padding: 0.5rem 0.75rem;
+		font-size: 0.75rem;
+		font-weight: 500;
+		color: var(--accent);
+		background: rgba(74, 144, 164, 0.1);
+		border: 1px solid var(--accent);
+		border-radius: var(--radius-sm);
+		cursor: pointer;
+		transition: all 0.15s ease;
+	}
+
+	.btn-map-view:hover {
+		background: rgba(74, 144, 164, 0.2);
+	}
+
+	/* Expand sidebar button */
+	.expand-sidebar-btn {
+		display: none;
+		position: fixed;
+		bottom: 1rem;
+		left: 50%;
+		transform: translateX(-50%);
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.75rem 1.25rem;
+		font-size: 0.875rem;
+		font-weight: 500;
+		color: white;
+		background: var(--accent);
+		border: none;
+		border-radius: var(--radius-md);
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+		cursor: pointer;
+		z-index: 100;
+		transition: all 0.15s ease;
+	}
+
+	.expand-sidebar-btn:hover {
+		background: var(--accent-hover, #3d7a8a);
+		box-shadow: 0 6px 16px rgba(0, 0, 0, 0.25);
+	}
+
 	@media (max-width: 640px) {
 		.sidebar {
 			top: auto;
@@ -520,6 +675,20 @@
 			border-left: none;
 			border-right: none;
 			border-bottom: none;
+			border-radius: var(--radius-md) var(--radius-md) 0 0;
+			transition: transform 0.3s ease;
+		}
+
+		.sidebar.collapsed {
+			transform: translateY(100%);
+		}
+
+		.btn-map-view {
+			display: flex;
+		}
+
+		.expand-sidebar-btn {
+			display: flex;
 		}
 	}
 </style>

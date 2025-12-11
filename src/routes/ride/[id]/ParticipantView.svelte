@@ -29,10 +29,11 @@
 			categories: string[];
 		};
 		onCandidatesChange?: (candidates: CandidatePOI[], category: string | null) => void;
-		onCandidateSelected?: (candidate: CandidatePOI) => void;
+		onStartLocationPick?: () => void;
+		startLocationFromMap?: { lat: number; lng: number } | null;
 	}
 
-	let { ride, onCandidatesChange, onCandidateSelected }: Props = $props();
+	let { ride, onCandidatesChange, onStartLocationPick, startLocationFromMap }: Props = $props();
 
 	// Form state
 	let startLocation = $state<{ lat: number; lng: number } | null>(null);
@@ -59,14 +60,11 @@
 	let pinError = $state('');
 	let isVerifying = $state(false);
 
-	let mapReady = $state(false);
-	let map: L.Map | null = null;
-	let marker: L.Marker | null = null;
-	let poiMarkers: Record<string, L.Marker> = {};
-	let L: typeof import('leaflet') | null = null;
-
 	// Mobile sidebar collapse state
 	let sidebarCollapsed = $state(false);
+
+	// Location picking mode
+	let isPickingLocation = $state(false);
 
 	const routeTypes: { value: RouteType; label: string }[] = [
 		{ value: 'loop', label: 'Loop' },
@@ -74,63 +72,25 @@
 		{ value: 'no_preference', label: 'No Pref' }
 	];
 
-	onMount(async () => {
+	onMount(() => {
 		visitorToken = localStorage.getItem(`visitor_${ride.id}`);
-
-		// Initialize map
-		L = await import('leaflet');
-		await import('leaflet/dist/leaflet.css');
-
-		const mapEl = document.getElementById('location-map');
-		if (!mapEl) return;
-
-		map = L.map(mapEl, { zoomControl: false }).setView([39.8283, -98.5795], 4);
-
-		L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-			attribution: '&copy; OSM &copy; CARTO'
-		}).addTo(map);
-
-		map.on('click', (e) => {
-			setLocation(e.latlng.lat, e.latlng.lng);
-		});
-
-		// Try to get user location
-		if (navigator.geolocation) {
-			navigator.geolocation.getCurrentPosition(
-				(pos) => {
-					setLocation(pos.coords.latitude, pos.coords.longitude);
-					map?.setView([pos.coords.latitude, pos.coords.longitude], 12);
-				},
-				() => {
-					// Geolocation failed
-				}
-			);
-		}
-
-		mapReady = true;
 	});
 
-	function setLocation(lat: number, lng: number) {
-		startLocation = { lat, lng };
-
-		if (!map || !L) return;
-
-		if (marker) {
-			marker.setLatLng([lat, lng]);
-		} else {
-			const icon = L.divIcon({
-				className: 'location-marker',
-				html: '<div class="marker-dot"></div>',
-				iconSize: [20, 20],
-				iconAnchor: [10, 10]
-			});
-			marker = L.marker([lat, lng], { icon, draggable: true }).addTo(map);
-			marker.on('dragend', () => {
-				const pos = marker!.getLatLng();
-				startLocation = { lat: pos.lat, lng: pos.lng };
-			});
+	// Watch for location updates from main map
+	$effect(() => {
+		if (startLocationFromMap) {
+			startLocation = startLocationFromMap;
+			isPickingLocation = false;
+			sidebarCollapsed = false;
 		}
+	});
+
+	function startLocationPicking() {
+		isPickingLocation = true;
+		sidebarCollapsed = true;
+		onStartLocationPick?.();
 	}
+
 
 	async function searchPOI(category: string) {
 		const query = searchQueries[category]?.trim();
@@ -192,8 +152,6 @@
 		activeSearchCategory = null;
 		onCandidatesChange?.([], null);
 
-		// Add marker to mini-map
-		addPOIMarker(poi);
 	}
 
 	// Called when a candidate is selected from the main map
@@ -216,32 +174,7 @@
 	}
 
 	function removePOI(category: string) {
-		const poi = selectedPois.find((p) => p.category === category);
-		if (poi && poiMarkers[poi.id] && map) {
-			map.removeLayer(poiMarkers[poi.id]);
-			delete poiMarkers[poi.id];
-		}
 		selectedPois = selectedPois.filter((p) => p.category !== category);
-	}
-
-	function addPOIMarker(poi: SelectedPOI) {
-		if (!map || !L) return;
-
-		// Remove existing marker for this POI if any
-		if (poiMarkers[poi.id]) {
-			map.removeLayer(poiMarkers[poi.id]);
-		}
-
-		const icon = L.divIcon({
-			className: 'poi-marker',
-			html: `<div class="poi-dot"></div>`,
-			iconSize: [16, 16],
-			iconAnchor: [8, 8]
-		});
-
-		const poiMarker = L.marker([poi.lat, poi.lng], { icon }).addTo(map);
-		poiMarker.bindTooltip(poi.name, { permanent: false, direction: 'top' });
-		poiMarkers[poi.id] = poiMarker;
 	}
 
 	function getSelectedPOI(category: string): SelectedPOI | undefined {
@@ -356,7 +289,7 @@
 				</button>
 			</div>
 		{:else}
-			<!-- Location Map -->
+			<!-- Start Location -->
 			<div class="section">
 				<div class="label-row">
 					<span class="label">Start Location</span>
@@ -364,8 +297,25 @@
 						<span class="label-value mono">{startLocation.lat.toFixed(4)}, {startLocation.lng.toFixed(4)}</span>
 					{/if}
 				</div>
-				<div id="location-map" class="location-map"></div>
-				<div class="map-hint">Click to set location, drag to adjust</div>
+				{#if startLocation}
+					<button class="location-display" onclick={startLocationPicking}>
+						<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+							<path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
+							<circle cx="12" cy="10" r="3" />
+						</svg>
+						<span>Location set</span>
+						<span class="change-link">Change</span>
+					</button>
+				{:else}
+					<button class="btn btn-location" onclick={startLocationPicking}>
+						<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+							<path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
+							<circle cx="12" cy="10" r="3" />
+						</svg>
+						Set Starting Point
+					</button>
+					<div class="location-hint">Tap to pick your start location on the map</div>
+				{/if}
 			</div>
 
 			<!-- Distance -->
@@ -519,7 +469,7 @@
 </aside>
 
 <!-- Floating expand button when sidebar is collapsed (mobile) -->
-{#if sidebarCollapsed}
+{#if sidebarCollapsed && !isPickingLocation}
 	<button class="expand-sidebar-btn" onclick={() => (sidebarCollapsed = false)}>
 		<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 			<path d="M4 6h16M4 12h16M4 18h16" />
@@ -638,32 +588,69 @@
 		color: var(--accent);
 	}
 
-	/* Location Map */
-	.location-map {
-		height: 140px;
-		background: var(--gray-100);
-		border: 1px solid var(--border);
+	/* Location Button */
+	.btn-location {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.5rem;
+		width: 100%;
+		padding: 0.75rem 1rem;
+		font-size: 0.8125rem;
+		font-weight: 500;
+		color: white;
+		background: var(--accent);
+		border: none;
 		border-radius: var(--radius-sm);
+		cursor: pointer;
+		transition: background 0.15s ease;
 	}
 
-	.map-hint {
+	.btn-location:hover {
+		background: var(--accent-hover, #3d7a8a);
+	}
+
+	.location-hint {
 		margin-top: 0.375rem;
 		font-size: 0.6875rem;
 		color: var(--text-muted);
+		text-align: center;
 	}
 
-	:global(.location-marker) {
-		background: transparent !important;
-		border: none !important;
+	.location-display {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		width: 100%;
+		padding: 0.625rem 0.75rem;
+		font-size: 0.8125rem;
+		color: var(--text-primary);
+		background: rgba(74, 157, 107, 0.1);
+		border: 1px solid var(--success);
+		border-radius: var(--radius-sm);
+		cursor: pointer;
+		transition: background 0.15s ease;
 	}
 
-	:global(.marker-dot) {
-		width: 20px;
-		height: 20px;
-		background: var(--accent);
-		border: 3px solid white;
-		border-radius: 50%;
-		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+	.location-display:hover {
+		background: rgba(74, 157, 107, 0.15);
+	}
+
+	.location-display svg {
+		color: var(--success);
+		flex-shrink: 0;
+	}
+
+	.location-display span:first-of-type {
+		flex: 1;
+		text-align: left;
+	}
+
+	.change-link {
+		font-size: 0.75rem;
+		color: var(--text-muted);
+		text-decoration: underline;
+		text-underline-offset: 2px;
 	}
 
 	/* Range Input */
@@ -870,20 +857,6 @@
 
 	.poi-remove:hover {
 		color: var(--error);
-	}
-
-	:global(.poi-marker) {
-		background: transparent !important;
-		border: none !important;
-	}
-
-	:global(.poi-dot) {
-		width: 16px;
-		height: 16px;
-		background: var(--success);
-		border: 2px solid white;
-		border-radius: 50%;
-		box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
 	}
 
 	/* Time Availability */
